@@ -1,64 +1,79 @@
-# chartink_webhook.py
 from flask import Flask, request, jsonify
-from breeze_connect import BreezeConnect
-import os
-import json
+import json, os
 from datetime import datetime
+
+# Breeze API (commented for testing)
+# from breeze_connect import BreezeConnect
 
 app = Flask(__name__)
 
-# Initialize Breeze API (commented for now — add credentials in Render Environment later)
-try:
-    breeze = Breeze(api_key=os.getenv("BREEZE_API_KEY"))
-    print("✅ Breeze API initialized")
-except Exception as e:
-    print("⚠️ Breeze initialization skipped or failed:", e)
+# ============= Breeze Setup (Uncomment later for live trading) =============
+# breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
+# breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"),
+#                         session_token=os.getenv("BREEZE_SESSION_TOKEN"))
 
-@app.route("/chartink", methods=["POST"])
+# JSON file to track open trades
+OPEN_TRADES_FILE = "open_trades.json"
+
+# Helper: safely load JSON
+def load_trades():
+    if not os.path.exists(OPEN_TRADES_FILE):
+        return []
+    with open(OPEN_TRADES_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+# Helper: save JSON
+def save_trades(trades):
+    with open(OPEN_TRADES_FILE, "w") as f:
+        json.dump(trades, f, indent=4)
+
+@app.route('/chartink', methods=['POST'])
 def chartink_webhook():
-    try:
-        data = request.get_json(force=True)
-        print(f"[{datetime.now()}] ✅ Received Chartink alert: {data}")
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"error": "Invalid or empty payload"}), 400
 
-        if not data:
-            return jsonify({"error": "Empty payload"}), 400
+    print(f"[{datetime.now()}] Received alert: {data}")
 
-        # Handle single or multiple stock payloads
-        symbols = []
-        if isinstance(data, list):
-            symbols = [item.get("symbol") for item in data if "symbol" in item]
-        elif isinstance(data, dict) and "symbol" in data:
-            symbols = [data["symbol"]]
+    trades = load_trades()
 
-        print(f"🧾 Stocks to trade (test mode): {symbols}")
+    for stock in data:
+        symbol = stock.get("symbol")
+        if not symbol:
+            continue
 
-        for symbol in symbols:
-            print(f"💡 Simulated order for {symbol}: {{'stock': '{symbol}', 'status': 'simulated - no order placed'}}")
+        # ----- PLACE BUY ORDER -----
+        print(f"Placing buy order for {symbol} (TEST MODE)")
+        # response = breeze.place_order(
+        #     stock_code=symbol,
+        #     exchange_code="NSE",
+        #     product="margin",
+        #     action="buy",
+        #     order_type="market",
+        #     quantity="1",
+        #     price="",
+        #     validity="day"
+        # )
+        # print("Buy order response:", response)
 
-            # === Actual Breeze Order (commented out for safety) ===
-            # breeze.place_order(
-            #     stock_code=symbol,
-            #     exchange_code="NSE",
-            #     product="margin",
-            #     action="buy",
-            #     order_type="market",
-            #     quantity="1",
-            #     price="0",
-            #     validity="day"
-            # )
-            # print(f"✅ Real order placed for {symbol}")
+        # Simulated buy price
+        buy_price = 1000.0  
 
-        return jsonify({"status": "success", "received": len(symbols)})
+        trades.append({
+            "symbol": symbol,
+            "buy_price": buy_price,
+            "buy_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
 
-    except Exception as e:
-        print(f"❌ Error handling webhook: {e}")
-        return jsonify({"error": str(e)}), 500
+    save_trades(trades)
+    return jsonify({"status": "success", "received": len(data)}), 200
 
+@app.route('/')
+def home():
+    return "Chartink Webhook Receiver Active"
 
-@app.route("/", methods=["GET"])
-def index():
-    return "Chartink Webhook Receiver is running!"
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=10000)
