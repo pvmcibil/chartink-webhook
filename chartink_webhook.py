@@ -1,6 +1,6 @@
 # chartink_webhook.py
 from flask import Flask, request, jsonify
-from breeze_connect import Breeze
+from breeze_connect import BreezeConnect
 import os
 import json
 from datetime import datetime
