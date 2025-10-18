@@ -1,2 +1,2 @@
-breeze-connect==1.0.33
+git+https://github.com/ICICI-Direct/breeze-connect.git
 flask==3.1.2
