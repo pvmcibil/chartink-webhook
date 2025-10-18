@@ -1,13 +1,13 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
 import os
-from breeze_connect import Breeze
+from breeze_connect import breeze_connect
 import json
 
 app = Flask(__name__)
 
-# Initialize Breeze connection (won’t place any order now)
-breeze = Breeze(api_key=os.getenv("BREEZE_API_KEY"))
+# Initialize Breeze connection (test mode)
+breeze = breeze_connect(api_key=os.getenv("BREEZE_API_KEY"))
 breeze.generate_session(
     api_secret=os.getenv("BREEZE_API_SECRET"),
     session_token=os.getenv("BREEZE_SESSION_TOKEN")
@@ -21,14 +21,12 @@ def chartink_webhook():
 
         print(f"[{timestamp}] ✅ Received Chartink alert: {data}", flush=True)
 
-        # Normalize data
+        # Normalize input into list of symbols
         stocks = []
         if isinstance(data, dict):
-            # Case 1: Single stock {"symbol": "RELIANCE", "price": 2700}
             if "symbol" in data:
                 stocks.append(data["symbol"])
         elif isinstance(data, list):
-            # Case 2: List of stocks [{"symbol": "RELIANCE"}, {"symbol": "HDFCBANK"}]
             stocks = [item["symbol"] for item in data if "symbol" in item]
 
         print(f"🧾 Stocks to trade (test mode): {stocks}", flush=True)
@@ -36,22 +34,22 @@ def chartink_webhook():
         results = []
         for stock in stocks:
             try:
-                # --- Commented out actual order placement for testing ---
+                # --- Commented out actual Breeze order placement for safety ---
                 # order_resp = breeze.place_order(
                 #     stock_code=stock,
                 #     exchange_code="NSE",
                 #     product="margin",           # Intraday
-                #     action="buy",                # or dynamic
+                #     action="buy",                # Buy by default (you can modify)
                 #     order_type="market",         # Market order
                 #     stoploss="",                 # No SL
                 #     quantity="1",
-                #     price="0",                   # Ignored for market
+                #     price="0",                   # Ignored for market order
                 #     validity="day"
                 # )
                 # results.append({stock: order_resp})
-                # print(f"Order placed for {stock}: {order_resp}", flush=True)
+                # print(f"📈 Order placed for {stock}: {order_resp}", flush=True)
 
-                # Instead, just log a fake response
+                # --- Simulation response ---
                 fake_resp = {"stock": stock, "status": "simulated - no order placed"}
                 results.append(fake_resp)
                 print(f"💡 Simulated order for {stock}: {fake_resp}", flush=True)
