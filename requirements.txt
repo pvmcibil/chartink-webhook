@@ -1,2 +1,2 @@
-git+https://github.com/ICICI-Direct/breeze-connect.git
+git+https://github.com/Idirect-Tech/Breeze-Python-SDK.git
 flask==3.1.2
