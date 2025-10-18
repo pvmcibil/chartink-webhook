@@ -1,72 +1,63 @@
+# chartink_webhook.py
 from flask import Flask, request, jsonify
-from datetime import datetime
+from breeze_connect import Breeze
 import os
-from breeze_connect import breeze_connect
 import json
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Initialize Breeze connection (test mode)
-breeze = breeze_connect(api_key=os.getenv("BREEZE_API_KEY"))
-breeze.generate_session(
-    api_secret=os.getenv("BREEZE_API_SECRET"),
-    session_token=os.getenv("BREEZE_SESSION_TOKEN")
-)
+# Initialize Breeze API (commented for now — add credentials in Render Environment later)
+try:
+    breeze = Breeze(api_key=os.getenv("BREEZE_API_KEY"))
+    print("✅ Breeze API initialized")
+except Exception as e:
+    print("⚠️ Breeze initialization skipped or failed:", e)
 
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
     try:
         data = request.get_json(force=True)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{datetime.now()}] ✅ Received Chartink alert: {data}")
 
-        print(f"[{timestamp}] ✅ Received Chartink alert: {data}", flush=True)
+        if not data:
+            return jsonify({"error": "Empty payload"}), 400
 
-        # Normalize input into list of symbols
-        stocks = []
-        if isinstance(data, dict):
-            if "symbol" in data:
-                stocks.append(data["symbol"])
-        elif isinstance(data, list):
-            stocks = [item["symbol"] for item in data if "symbol" in item]
+        # Handle single or multiple stock payloads
+        symbols = []
+        if isinstance(data, list):
+            symbols = [item.get("symbol") for item in data if "symbol" in item]
+        elif isinstance(data, dict) and "symbol" in data:
+            symbols = [data["symbol"]]
 
-        print(f"🧾 Stocks to trade (test mode): {stocks}", flush=True)
+        print(f"🧾 Stocks to trade (test mode): {symbols}")
 
-        results = []
-        for stock in stocks:
-            try:
-                # --- Commented out actual Breeze order placement for safety ---
-                # order_resp = breeze.place_order(
-                #     stock_code=stock,
-                #     exchange_code="NSE",
-                #     product="margin",           # Intraday
-                #     action="buy",                # Buy by default (you can modify)
-                #     order_type="market",         # Market order
-                #     stoploss="",                 # No SL
-                #     quantity="1",
-                #     price="0",                   # Ignored for market order
-                #     validity="day"
-                # )
-                # results.append({stock: order_resp})
-                # print(f"📈 Order placed for {stock}: {order_resp}", flush=True)
+        for symbol in symbols:
+            print(f"💡 Simulated order for {symbol}: {{'stock': '{symbol}', 'status': 'simulated - no order placed'}}")
 
-                # --- Simulation response ---
-                fake_resp = {"stock": stock, "status": "simulated - no order placed"}
-                results.append(fake_resp)
-                print(f"💡 Simulated order for {stock}: {fake_resp}", flush=True)
+            # === Actual Breeze Order (commented out for safety) ===
+            # breeze.place_order(
+            #     stock_code=symbol,
+            #     exchange_code="NSE",
+            #     product="margin",
+            #     action="buy",
+            #     order_type="market",
+            #     quantity="1",
+            #     price="0",
+            #     validity="day"
+            # )
+            # print(f"✅ Real order placed for {symbol}")
 
-            except Exception as e:
-                results.append({stock: f"Error: {str(e)}"})
-                print(f"⚠️ Failed to simulate order for {stock}: {e}", flush=True)
-
-        # Log results to file
-        with open("chartink_orders.log", "a") as f:
-            f.write(f"[{timestamp}] {json.dumps(results)}\n")
-
-        return jsonify({"status": "success (test mode)", "orders": results})
+        return jsonify({"status": "success", "received": len(symbols)})
 
     except Exception as e:
-        print(f"❌ Error in webhook: {e}", flush=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print(f"❌ Error handling webhook: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return "Chartink Webhook Receiver is running!"
 
 
 if __name__ == "__main__":
