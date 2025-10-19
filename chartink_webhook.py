@@ -1,79 +1,61 @@
+# chartink_webhook.py
 from flask import Flask, request, jsonify
-import json, os
+import os
+import psycopg2
 from datetime import datetime
-
-# Breeze API (commented for testing)
-# from breeze_connect import BreezeConnect
+# from breeze_connect import BreezeConnect  # Uncomment later for live trading
 
 app = Flask(__name__)
 
-# ============= Breeze Setup (Uncomment later for live trading) =============
-# breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
-# breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"),
-#                         session_token=os.getenv("BREEZE_SESSION_TOKEN"))
+# Connect to PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL")
+conn = psycopg2.connect(DATABASE_URL)
+cursor = conn.cursor()
 
-# JSON file to track open trades
-OPEN_TRADES_FILE = "open_trades.json"
-
-# Helper: safely load JSON
-def load_trades():
-    if not os.path.exists(OPEN_TRADES_FILE):
-        return []
-    with open(OPEN_TRADES_FILE, "r") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return []
-
-# Helper: save JSON
-def save_trades(trades):
-    with open(OPEN_TRADES_FILE, "w") as f:
-        json.dump(trades, f, indent=4)
+# Create table if not exists
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS open_trades (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT,
+    buy_price FLOAT,
+    qty INT,
+    buy_time TIMESTAMP
+);
+""")
+conn.commit()
 
 @app.route('/chartink', methods=['POST'])
-def chartink_webhook():
-    data = request.get_json(force=True, silent=True)
-    if not data:
-        return jsonify({"error": "Invalid or empty payload"}), 400
-
+def chartink_alert():
+    data = request.get_json(force=True)
     print(f"[{datetime.now()}] Received alert: {data}")
 
-    trades = load_trades()
+    for item in data:
+        symbol = item.get('symbol')
 
-    for stock in data:
-        symbol = stock.get("symbol")
-        if not symbol:
-            continue
+        # Simulate getting LTP — replace later with Breeze API call
+        ltp = 100.0  # Placeholder
 
-        # ----- PLACE BUY ORDER -----
-        print(f"Placing buy order for {symbol} (TEST MODE)")
-        # response = breeze.place_order(
-        #     stock_code=symbol,
-        #     exchange_code="NSE",
-        #     product="margin",
-        #     action="buy",
-        #     order_type="market",
-        #     quantity="1",
-        #     price="",
-        #     validity="day"
-        # )
-        # print("Buy order response:", response)
+        qty = 10  # example lot size
+        buy_time = datetime.now()
 
-        # Simulated buy price
-        buy_price = 1000.0  
+        # Insert trade into DB
+        cursor.execute(
+            "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
+            (symbol, ltp, qty, buy_time)
+        )
+        conn.commit()
 
-        trades.append({
-            "symbol": symbol,
-            "buy_price": buy_price,
-            "buy_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
+        print(f"✅ Trade recorded in DB: {symbol} @ {ltp}")
 
-    save_trades(trades)
-    return jsonify({"status": "success", "received": len(data)}), 200
+        # --- Order placement logic (commented for now) ---
+        # breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
+        # breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"), session_token=os.getenv("BREEZE_SESSION_TOKEN"))
+        # order_resp = breeze.place_order(stock_code=symbol, exchange_code="NSE", action="BUY", order_type="MARKET", quantity=qty)
+        # print(f"Order placed: {order_resp}")
+        # ------------------------------------------------
 
-@app.route('/')
-def home():
-    return "Chartink Webhook Receiver Active"
+    return jsonify({"status": "success"}), 200
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=10000)
