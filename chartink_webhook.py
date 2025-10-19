@@ -1,4 +1,3 @@
-# chartink_webhook.py
 from flask import Flask, request, jsonify
 import os
 import psycopg2
@@ -13,52 +12,53 @@ app = Flask(__name__)
 # =====================================================
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Ensure Render’s connection string works even if SSL mode missing
 urlparse.uses_netloc.append("postgres")
-
-# Render uses postgres:// which psycopg2 doesn’t like — fix it
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
-# Add SSL mode if missing
 if DATABASE_URL and "sslmode" not in DATABASE_URL:
     DATABASE_URL += "?sslmode=require"
 
-# Connect to PostgreSQL safely
-conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-cursor = conn.cursor()
 
-# Create table if not exists
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS open_trades (
-    id SERIAL PRIMARY KEY,
-    symbol TEXT,
-    buy_price FLOAT,
-    qty INT,
-    buy_time TIMESTAMP
-);
-""")
-conn.commit()
+def get_db_connection():
+    """Create a new database connection each time (avoids SSL idle errors)."""
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
+
 
 # =====================================================
-# Webhook Endpoint — receives alerts from Chartink
+# Webhook Endpoint
 # =====================================================
 @app.route('/chartink', methods=['POST'])
 def chartink_alert():
     data = request.get_json(force=True)
     print(f"[{datetime.now()}] Received alert: {data}")
 
+    # Open DB connection safely inside the request
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Ensure table exists
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS open_trades (
+        id SERIAL PRIMARY KEY,
+        symbol TEXT,
+        buy_price FLOAT,
+        qty INT,
+        buy_time TIMESTAMP
+    );
+    """)
+    conn.commit()
+
     for item in data:
         symbol = item.get('symbol')
         if not symbol:
             continue
 
-        # Simulate getting LTP — replace with Breeze API later
+        # Simulate getting LTP — replace later with Breeze API call
         ltp = 100.0  # Placeholder
 
-        qty = 10  # Example quantity
+        qty = 10  # example lot size
         buy_time = datetime.now()
 
-        # Insert into DB
+        # Insert trade into DB
         cursor.execute(
             "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
             (symbol, ltp, qty, buy_time)
@@ -81,20 +81,18 @@ def chartink_alert():
         # print(f"Order placed: {order_resp}")
         # ------------------------------------------------
 
+    # Close DB connection properly
+    cursor.close()
+    conn.close()
+
     return jsonify({"status": "success"}), 200
 
 
-# =====================================================
-# Home endpoint for Render health check
-# =====================================================
 @app.route('/')
 def home():
-    return "✅ Chartink Webhook Active and Connected to DB"
+    return "Chartink Webhook Active ✅"
 
 
-# =====================================================
-# Flask App Runner
-# =====================================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
