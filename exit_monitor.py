@@ -1,9 +1,11 @@
 # =====================================================
-# exit_monitor.py (Fixed & Final)
+# exit_monitor.py (Render Free-Tier Compatible + Final)
 # =====================================================
 import os
 import time
 import psycopg2
+import socket
+import threading
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 # from breeze_connect import BreezeConnect  # Uncomment later for live trading
@@ -167,5 +169,21 @@ def monitor_loop():
             time.sleep(60)
 
 
+# =====================================================
+# Dummy Port Binding (Render Free Tier Keepalive)
+# =====================================================
 if __name__ == "__main__":
-    monitor_loop()
+    # Start the monitor in a background thread
+    threading.Thread(target=monitor_loop, daemon=True).start()
+
+    # Keep a dummy port open to make Render think it’s a web service
+    port = int(os.environ.get("PORT", 10000))
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("0.0.0.0", port))
+    s.listen(1)
+    print(f"🌐 Dummy web service running on port {port} (Render keepalive)")
+
+    while True:
+        conn_sock, addr = s.accept()
+        conn_sock.sendall(b"Exit monitor is active.\n")
+        conn_sock.close()
