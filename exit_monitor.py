@@ -1,5 +1,5 @@
 # =====================================================
-# exit_monitor.py
+# exit_monitor.py (Fixed & Final)
 # =====================================================
 import os
 import time
@@ -7,6 +7,7 @@ import psycopg2
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 # from breeze_connect import BreezeConnect  # Uncomment later for live trading
+
 
 # =====================================================
 # Database Setup with SSL + Retry
@@ -29,38 +30,20 @@ def get_db_connection():
         except Exception as e:
             print(f"[{datetime.now()}] ⚠️ DB connection failed ({attempt+1}/3): {e}")
             time.sleep(5)
+
     raise ConnectionError("❌ Unable to connect to PostgreSQL after 3 attempts")
 
 
+# Initial connection
 conn = get_db_connection()
 cursor = conn.cursor()
 
-# =====================================================
-# Ensure Table Exists
-# =====================================================
-def ensure_table_exists():
-    """Create open_trades table if it doesn’t exist"""
-    try:
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS open_trades (
-            id SERIAL PRIMARY KEY,
-            symbol TEXT,
-            buy_price FLOAT,
-            qty INT,
-            buy_time TIMESTAMP
-        );
-        """)
-        conn.commit()
-        print(f"[{datetime.now()}] ✅ Verified 'open_trades' table exists")
-    except Exception as e:
-        print(f"[{datetime.now()}] ❌ Error ensuring table exists: {e}")
-
-ensure_table_exists()
 
 # =====================================================
-# Test Mode Config (skip real order placement)
+# Test Mode Config (to skip real order placement)
 # =====================================================
 TEST_MODE = True  # ⬅️ Set to False when live with Breeze
+
 
 # =====================================================
 # Breeze Setup (disabled in test mode)
@@ -73,6 +56,7 @@ if not TEST_MODE:
         session_token=os.getenv("BREEZE_SESSION_TOKEN")
     )
 
+
 # =====================================================
 # Utility: Fetch LTP safely
 # =====================================================
@@ -80,8 +64,9 @@ def get_ltp(symbol):
     """Fetch live LTP for a given symbol (mocked in TEST_MODE)"""
     try:
         if TEST_MODE:
+            # Simulate random market movement for testing
             import random
-            return round(100 + random.uniform(-2, 5), 2)
+            return round(100 + random.uniform(-3, 6), 2)
 
         quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE", expiry_date=None)
         if quote and 'Success' in quote.get('Status', ''):
@@ -93,6 +78,7 @@ def get_ltp(symbol):
     except Exception as e:
         print(f"[{datetime.now()}] ❌ Error fetching LTP for {symbol}: {e}")
         return None
+
 
 # =====================================================
 # Sell Logic
@@ -134,11 +120,14 @@ def check_and_sell(trade):
     else:
         print(f"[{datetime.now()}] ⏳ {symbol} | LTP={ltp} | Δ={change_pct:.2f}%")
 
+
 # =====================================================
 # Main Loop (with Performance Timing)
 # =====================================================
 def monitor_loop():
+    global conn, cursor  # ✅ FIXED: declared before use
     print(f"🚀 Exit monitor started at {datetime.now()} (TEST_MODE={TEST_MODE})")
+
     while True:
         try:
             cursor.execute("SELECT id, symbol, buy_price, qty FROM open_trades")
@@ -151,7 +140,6 @@ def monitor_loop():
 
             print(f"[{datetime.now()}] 🔍 Checking {len(trades)} open trades...")
 
-            # --- Performance Timer Start ---
             start_time = time.time()
 
             # Thread pool for parallel work
@@ -160,12 +148,9 @@ def monitor_loop():
                 for future in as_completed(futures):
                     future.result()
 
-            # --- Timer End ---
-            end_time = time.time()
-            duration = round(end_time - start_time, 2)
+            duration = round(time.time() - start_time, 2)
             print(f"✅ Batch processed: {len(trades)} trades in {duration} seconds")
 
-            # --- Log metrics ---
             with open("performance_log.txt", "a") as f:
                 f.write(f"{datetime.now()} | {len(trades)} trades | {duration}s\n")
 
@@ -174,10 +159,8 @@ def monitor_loop():
         except psycopg2.Error:
             print(f"[{datetime.now()}] ⚠️ Database connection lost, reconnecting...")
             time.sleep(5)
-            global conn, cursor
             conn = get_db_connection()
             cursor = conn.cursor()
-            ensure_table_exists()
 
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Unexpected error: {e}")
