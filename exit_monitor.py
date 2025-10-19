@@ -1,41 +1,66 @@
+# =====================================================
 # exit_monitor.py
+# =====================================================
 import os
 import time
 import psycopg2
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from breeze_connect import BreezeConnect
+# from breeze_connect import BreezeConnect  # Uncomment later for live trading
 
 # =====================================================
-# Database Setup
+# Database Setup with SSL + Retry
 # =====================================================
 def get_db_connection():
-    """Reconnect-safe PostgreSQL connection"""
+    """Reconnect-safe PostgreSQL connection with retries"""
     DATABASE_URL = os.getenv("DATABASE_URL")
-    if DATABASE_URL and "sslmode" not in DATABASE_URL:
+    if not DATABASE_URL:
+        raise ValueError("❌ DATABASE_URL environment variable not set")
+
+    if "sslmode" not in DATABASE_URL:
         DATABASE_URL += "?sslmode=require"
-    conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-    conn.autocommit = True
-    return conn
+
+    for attempt in range(3):
+        try:
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+            conn.autocommit = True
+            print(f"[{datetime.now()}] ✅ PostgreSQL connected (attempt {attempt+1})")
+            return conn
+        except Exception as e:
+            print(f"[{datetime.now()}] ⚠️ DB connection failed ({attempt+1}/3): {e}")
+            time.sleep(5)
+    raise ConnectionError("❌ Unable to connect to PostgreSQL after 3 attempts")
 
 conn = get_db_connection()
 cursor = conn.cursor()
 
 # =====================================================
-# Breeze Setup
+# Test Mode Config (to skip real order placement)
 # =====================================================
-breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
-breeze.generate_session(
-    api_secret=os.getenv("BREEZE_API_SECRET"),
-    session_token=os.getenv("BREEZE_SESSION_TOKEN")
-)
+TEST_MODE = True  # ⬅️ Set to False when you go live with Breeze
+
+# =====================================================
+# Breeze Setup (disabled in test mode)
+# =====================================================
+if not TEST_MODE:
+    from breeze_connect import BreezeConnect
+    breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
+    breeze.generate_session(
+        api_secret=os.getenv("BREEZE_API_SECRET"),
+        session_token=os.getenv("BREEZE_SESSION_TOKEN")
+    )
 
 # =====================================================
 # Utility: Fetch LTP safely
 # =====================================================
 def get_ltp(symbol):
-    """Fetch live LTP for a given symbol using Breeze API"""
+    """Fetch live LTP for a given symbol (mocked in TEST_MODE)"""
     try:
+        if TEST_MODE:
+            # Simulate some variation for testing
+            import random
+            return round(100 + random.uniform(-2, 5), 2)
+
         quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE", expiry_date=None)
         if quote and 'Success' in quote.get('Status', ''):
             ltp = float(quote['Success'][0]['ltp'])
@@ -48,7 +73,7 @@ def get_ltp(symbol):
         return None
 
 # =====================================================
-# Utility: Sell logic
+# Sell Logic
 # =====================================================
 def check_and_sell(trade):
     """Check exit condition for one trade, and sell if target or stop hit"""
@@ -61,21 +86,26 @@ def check_and_sell(trade):
 
     if change_pct <= -0.5 or change_pct >= 4:
         try:
-            print(f"[{datetime.now()}] 🚨 Exit condition met for {symbol}: {change_pct:.2f}%")
-            # --- Place sell order (commented for test) ---
-            # resp = breeze.place_order(
-            #     stock_code=symbol,
-            #     exchange_code="NSE",
-            #     action="SELL",
-            #     order_type="MARKET",
-            #     quantity=qty
-            # )
-            # print(f"✅ Sell order placed for {symbol}: {resp}")
-            # ------------------------------------------------
+            print(f"[{datetime.now()}] 🚨 Exit condition met for {symbol}: Δ={change_pct:.2f}%")
 
-            # Delete only if sell success
-            cursor.execute("DELETE FROM open_trades WHERE id = %s", (trade_id,))
-            print(f"🧹 Record deleted for {symbol} (Trade ID: {trade_id})")
+            if not TEST_MODE:
+                # --- Real Sell Order ---
+                resp = breeze.place_order(
+                    stock_code=symbol,
+                    exchange_code="NSE",
+                    action="SELL",
+                    order_type="MARKET",
+                    quantity=qty
+                )
+                if resp and "Success" in str(resp):
+                    cursor.execute("DELETE FROM open_trades WHERE id = %s", (trade_id,))
+                    print(f"✅ Sell success → Record deleted for {symbol} (Trade ID: {trade_id})")
+                else:
+                    print(f"⚠️ Sell failed for {symbol}: {resp}")
+            else:
+                # --- Test Mode: simulate successful sell ---
+                cursor.execute("DELETE FROM open_trades WHERE id = %s", (trade_id,))
+                print(f"🧪 (TEST) Record deleted for {symbol} (Trade ID: {trade_id})")
 
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Error selling {symbol}: {e}")
@@ -83,10 +113,10 @@ def check_and_sell(trade):
         print(f"[{datetime.now()}] ⏳ {symbol} | LTP={ltp} | Δ={change_pct:.2f}%")
 
 # =====================================================
-# Main Loop
+# Main Loop (with Performance Timing)
 # =====================================================
 def monitor_loop():
-    print(f"🚀 Exit monitor started at {datetime.now()}")
+    print(f"🚀 Exit monitor started at {datetime.now()} (TEST_MODE={TEST_MODE})")
     while True:
         try:
             cursor.execute("SELECT id, symbol, buy_price, qty FROM open_trades")
@@ -99,12 +129,25 @@ def monitor_loop():
 
             print(f"[{datetime.now()}] 🔍 Checking {len(trades)} open trades...")
 
-            # Thread pool for parallel LTP fetch + logic
-            with ThreadPoolExecutor(max_workers=10) as executor:
+            # --- Performance Timer Start ---
+            start_time = time.time()
+
+            # Thread pool for parallel work
+            with ThreadPoolExecutor(max_workers=20) as executor:
                 futures = [executor.submit(check_and_sell, trade) for trade in trades]
                 for future in as_completed(futures):
                     future.result()
 
+            # --- Timer End ---
+            end_time = time.time()
+            duration = round(end_time - start_time, 2)
+            print(f"✅ Batch processed: {len(trades)} trades in {duration} seconds")
+
+            # --- Optional: store metrics to file for analysis ---
+            with open("performance_log.txt", "a") as f:
+                f.write(f"{datetime.now()} | {len(trades)} trades | {duration}s\n")
+
+            # Wait 60 sec before next cycle
             time.sleep(60)
 
         except psycopg2.Error:
@@ -117,6 +160,7 @@ def monitor_loop():
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Unexpected error: {e}")
             time.sleep(60)
+
 
 if __name__ == "__main__":
     monitor_loop()

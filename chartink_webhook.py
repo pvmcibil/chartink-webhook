@@ -18,21 +18,23 @@ def get_db_connection():
     if not DATABASE_URL:
         raise ValueError("❌ DATABASE_URL environment variable not set")
 
+    # Ensure SSL mode for Render connection
     urlparse.uses_netloc.append("postgres")
     if "sslmode" not in DATABASE_URL:
         DATABASE_URL += "?sslmode=require"
 
-    for attempt in range(3):
+    # Try up to 5 times in case DB is waking up
+    for attempt in range(5):
         try:
             conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-            print(f"[{datetime.now()}] ✅ PostgreSQL connected")
+            print(f"[{datetime.now()}] ✅ PostgreSQL connected (attempt {attempt+1})")
             return conn
         except Exception as e:
-            print(f"[{datetime.now()}] ⚠️ DB connection failed (attempt {attempt+1}/3): {e}")
+            print(f"[{datetime.now()}] ⚠️ DB connection failed (attempt {attempt+1}/5): {e}")
             time.sleep(5)
-    raise ConnectionError("❌ Unable to connect to PostgreSQL after 3 attempts")
+    raise ConnectionError("❌ Unable to connect to PostgreSQL after 5 attempts")
 
-# Establish connection
+# Establish initial DB connection
 conn = get_db_connection()
 cursor = conn.cursor()
 
@@ -70,12 +72,12 @@ def chartink_alert():
         if not symbol:
             continue
 
-        ltp = 100.0  # Placeholder for testing (replace with live LTP)
+        ltp = 100.0  # Placeholder for now (use Breeze LTP later)
         qty = 10
         buy_time = datetime.now()
 
         try:
-            # --- Order placement logic (commented for safe testing) ---
+            # --- Order placement logic (commented for now) ---
             """
             breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
             breeze.generate_session(
@@ -103,18 +105,17 @@ def chartink_alert():
             else:
                 print(f"[{datetime.now()}] ⚠️ Order failed for {symbol}: {order_resp}")
             """
-            # --- TEST MODE: Simulate successful order ---
+            # --- TEST MODE: Simulate successful order insertion ---
             cursor.execute(
                 "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
                 (symbol, ltp, qty, buy_time)
             )
             conn.commit()
             print(f"[{datetime.now()}] 🧪 (TEST) Trade recorded in DB: {symbol} @ {ltp}")
-            # -------------------------------------------------------------
+            # -------------------------------------------------------
 
         except (psycopg2.InterfaceError, psycopg2.OperationalError):
-            # Reconnect and retry once
-            print(f"[{datetime.now()}] 🔄 Reconnecting DB...")
+            print(f"[{datetime.now()}] 🔄 Lost DB connection, retrying...")
             conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute(
@@ -122,6 +123,7 @@ def chartink_alert():
                 (symbol, ltp, qty, buy_time)
             )
             conn.commit()
+            print(f"[{datetime.now()}] ✅ Reconnected and recorded: {symbol}")
 
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Error handling {symbol}: {e}")
@@ -129,11 +131,17 @@ def chartink_alert():
     return jsonify({"status": "success"}), 200
 
 
+# =====================================================
+# Health Check Endpoint
+# =====================================================
 @app.route('/')
 def home():
-    return "🚀 Chartink Webhook Active and Monitoring Orders"
+    return "🚀 Chartink Webhook Active — DB Connected and Ready"
 
 
+# =====================================================
+# Run Flask App
+# =====================================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
