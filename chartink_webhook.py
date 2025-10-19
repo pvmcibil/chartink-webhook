@@ -13,26 +13,26 @@ app = Flask(__name__)
 # Database Connection (with SSL + Retry)
 # =====================================================
 def get_db_connection():
+    """Robust PostgreSQL connection with infinite retry"""
     DATABASE_URL = os.getenv("DATABASE_URL")
-
     if not DATABASE_URL:
         raise ValueError("❌ DATABASE_URL environment variable not set")
 
-    # Ensure SSL mode for Render connection
-    urlparse.uses_netloc.append("postgres")
     if "sslmode" not in DATABASE_URL:
         DATABASE_URL += "?sslmode=require"
 
-    # Try up to 5 times in case DB is waking up
-    for attempt in range(5):
+    attempt = 0
+    while True:
         try:
             conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-            print(f"[{datetime.now()}] ✅ PostgreSQL connected (attempt {attempt+1})")
+            conn.autocommit = True
+            print(f"[{datetime.now()}] ✅ PostgreSQL connected successfully")
             return conn
         except Exception as e:
-            print(f"[{datetime.now()}] ⚠️ DB connection failed (attempt {attempt+1}/5): {e}")
-            time.sleep(5)
-    raise ConnectionError("❌ Unable to connect to PostgreSQL after 5 attempts")
+            attempt += 1
+            print(f"[{datetime.now()}] ⚠️ Retry {attempt}: Unable to connect to PostgreSQL ({e})")
+            time.sleep(10)
+
 
 # Establish initial DB connection
 conn = get_db_connection()

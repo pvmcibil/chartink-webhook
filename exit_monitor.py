@@ -31,13 +31,36 @@ def get_db_connection():
             time.sleep(5)
     raise ConnectionError("❌ Unable to connect to PostgreSQL after 3 attempts")
 
+
 conn = get_db_connection()
 cursor = conn.cursor()
 
 # =====================================================
-# Test Mode Config (to skip real order placement)
+# Ensure Table Exists
 # =====================================================
-TEST_MODE = True  # ⬅️ Set to False when you go live with Breeze
+def ensure_table_exists():
+    """Create open_trades table if it doesn’t exist"""
+    try:
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS open_trades (
+            id SERIAL PRIMARY KEY,
+            symbol TEXT,
+            buy_price FLOAT,
+            qty INT,
+            buy_time TIMESTAMP
+        );
+        """)
+        conn.commit()
+        print(f"[{datetime.now()}] ✅ Verified 'open_trades' table exists")
+    except Exception as e:
+        print(f"[{datetime.now()}] ❌ Error ensuring table exists: {e}")
+
+ensure_table_exists()
+
+# =====================================================
+# Test Mode Config (skip real order placement)
+# =====================================================
+TEST_MODE = True  # ⬅️ Set to False when live with Breeze
 
 # =====================================================
 # Breeze Setup (disabled in test mode)
@@ -57,7 +80,6 @@ def get_ltp(symbol):
     """Fetch live LTP for a given symbol (mocked in TEST_MODE)"""
     try:
         if TEST_MODE:
-            # Simulate some variation for testing
             import random
             return round(100 + random.uniform(-2, 5), 2)
 
@@ -143,11 +165,10 @@ def monitor_loop():
             duration = round(end_time - start_time, 2)
             print(f"✅ Batch processed: {len(trades)} trades in {duration} seconds")
 
-            # --- Optional: store metrics to file for analysis ---
+            # --- Log metrics ---
             with open("performance_log.txt", "a") as f:
                 f.write(f"{datetime.now()} | {len(trades)} trades | {duration}s\n")
 
-            # Wait 60 sec before next cycle
             time.sleep(60)
 
         except psycopg2.Error:
@@ -156,6 +177,7 @@ def monitor_loop():
             global conn, cursor
             conn = get_db_connection()
             cursor = conn.cursor()
+            ensure_table_exists()
 
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Unexpected error: {e}")
