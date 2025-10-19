@@ -1,51 +1,134 @@
 # exit_monitor.py
+import threading
 import time
-import psycopg2
 import os
+import json
+import random
+import traceback
 from datetime import datetime
-# from breeze_connect import BreezeConnect  # Uncomment later for real exit
+from flask import Flask, jsonify
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-conn = psycopg2.connect(DATABASE_URL)
-cursor = conn.cursor()
+# Optional: import BreezeConnect if you use Breeze live
+# from breeze_connect import BreezeConnect
+import psycopg2
+
+app = Flask(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")  # set in Render env
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL_SECONDS", "60"))  # default 60s
+LIVE_MODE = os.getenv("LIVE_MODE", "false").lower() in ("1", "true", "yes")
+
+def log(*args, **kwargs):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ", *args, **kwargs, flush=True)
+
+def get_db_conn():
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
+
+def get_open_trades():
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, symbol, buy_price, qty FROM open_trades;")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        trades = [{"id": r[0], "symbol": r[1], "buy_price": float(r[2]), "qty": int(r[3])} for r in rows]
+        return trades
+    except Exception as e:
+        log("DB read error:", e)
+        return []
+
+def delete_trade(trade_id):
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM open_trades WHERE id = %s;", (trade_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        log(f"Deleted trade id={trade_id} from DB")
+    except Exception as e:
+        log("DB delete error:", e)
+
+def get_ltp_sim(symbol):
+    # Simulation fallback if no Breeze configured: random walk around 100
+    return 100 * (1 + random.uniform(-0.01, 0.06))
+
+def get_ltp_breeze(symbol):
+    # implement Breeze quote call if you have BreezeConnect ready
+    # Example (adjust per SDK): quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE")
+    # return float(quote["Success"][0]["ltp"])
+    raise NotImplementedError("Breeze LTP function not implemented")
 
 def get_ltp(symbol):
-    """Simulate live price — replace with Breeze quote later"""
-    import random
-    # Randomly simulate small moves
-    return 100 * (1 + random.uniform(-0.01, 0.05))
+    # Choose method: Breeze if env configured else simulation
+    if os.getenv("USE_BREEZE", "false").lower() in ("1","true","yes"):
+        try:
+            return get_ltp_breeze(symbol)
+        except Exception as e:
+            log("Breeze LTP error:", e, "falling back to sim")
+            return get_ltp_sim(symbol)
+    else:
+        return get_ltp_sim(symbol)
 
-def check_and_exit_trades():
-    cursor.execute("SELECT id, symbol, buy_price, qty FROM open_trades;")
-    trades = cursor.fetchall()
+def place_sell(trade):
+    symbol = trade["symbol"]
+    qty = trade.get("qty", 1)
+    if LIVE_MODE and os.getenv("USE_BREEZE", "false").lower() in ("1","true","yes"):
+        try:
+            # Implement your Breeze place order call here (uncomment and adapt)
+            # resp = breeze.place_order(stock_code=symbol, exchange_code="NSE",
+            #                           product="margin", action="sell",
+            #                           order_type="market", quantity=str(qty),
+            #                           price="0", validity="day")
+            # log("Placed LIVE SELL:", symbol, resp)
+            log("LIVE sell would be placed for", symbol, "— implement Breeze call")
+            return True
+        except Exception as e:
+            log("Error placing live sell for", symbol, ":", e)
+            return False
+    else:
+        log("Simulated SELL for", symbol, "qty=", qty)
+        return True
 
-    for trade in trades:
-        trade_id, symbol, buy_price, qty = trade
-        ltp = get_ltp(symbol)
-        change = ((ltp - buy_price) / buy_price) * 100
+def monitor_loop():
+    log("Exit monitor thread started; checking every", CHECK_INTERVAL, "seconds.")
+    while True:
+        try:
+            trades = get_open_trades()
+            if not trades:
+                log("No open trades.")
+            for t in trades:
+                trade_id = t["id"]
+                symbol = t["symbol"]
+                buy_price = float(t["buy_price"])
+                ltp = get_ltp(symbol)
+                if ltp is None:
+                    log("LTP unavailable for", symbol)
+                    continue
+                change = ((ltp - buy_price) / buy_price) * 100
+                log(f"Check {symbol}: buy={buy_price:.2f} ltp={ltp:.2f} change={change:.2f}%")
+                if change <= -0.5 or change >= 4.0:
+                    log(f"Exit condition met for {symbol}: change={change:.2f}% -> placing SELL")
+                    ok = place_sell(t)
+                    if ok:
+                        delete_trade(trade_id)
+            # end for
+        except Exception as e:
+            log("Monitor loop error:", e)
+            traceback.print_exc()
+        time.sleep(CHECK_INTERVAL)
 
-        print(f"[{datetime.now()}] Checking {symbol}: LTP={ltp:.2f} | Change={change:.2f}%")
+# Health route so Render can check service
+@app.route("/")
+def health():
+    return jsonify({"status":"ok", "monitor":"running"})
 
-        # Exit if price down more than 0.5% or up more than 4%
-        if change <= -0.5 or change >= 4.0:
-            print(f"🚀 Exiting {symbol}: change {change:.2f}%")
-
-            # --- Place SELL order (commented for now) ---
-            # breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
-            # breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"), session_token=os.getenv("BREEZE_SESSION_TOKEN"))
-            # order_resp = breeze.place_order(stock_code=symbol, exchange_code="NSE", action="SELL", order_type="MARKET", quantity=qty)
-            # print(f"Sell order placed: {order_resp}")
-            # ------------------------------------------------
-
-            # Remove from DB
-            cursor.execute("DELETE FROM open_trades WHERE id = %s;", (trade_id,))
-            conn.commit()
-            print(f"✅ Deleted {symbol} from open_trades after exit.")
-
-while True:
-    try:
-        check_and_exit_trades()
-        time.sleep(60)  # check every 1 minute
-    except Exception as e:
-        print("⚠️ Error in monitor loop:", e)
-        time.sleep(10)
+if __name__ == "__main__":
+    # start monitor thread
+    th = threading.Thread(target=monitor_loop, daemon=True)
+    th.start()
+    # run Flask so Render sees a port
+    port = int(os.getenv("PORT", "10000"))
+    log("Starting Flask on port", port)
+    app.run(host="0.0.0.0", port=port)
