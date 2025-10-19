@@ -1,2 +1,4 @@
 git+https://github.com/Idirect-Tech/Breeze-Python-SDK.git
 flask==3.1.2
+psycopg2-binary
+requests
