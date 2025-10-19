@@ -4,12 +4,22 @@ import os
 import psycopg2
 from datetime import datetime
 # from breeze_connect import BreezeConnect  # Uncomment later for live trading
+import urllib.parse as urlparse
 
 app = Flask(__name__)
 
-# Connect to PostgreSQL
+# =====================================================
+# Database Connection (Render-safe with SSL)
+# =====================================================
 DATABASE_URL = os.getenv("DATABASE_URL")
-conn = psycopg2.connect(DATABASE_URL)
+
+# Ensure Render’s connection string works even if SSL mode missing
+urlparse.uses_netloc.append("postgres")
+if DATABASE_URL and "sslmode" not in DATABASE_URL:
+    DATABASE_URL += "?sslmode=require"
+
+# Connect to PostgreSQL
+conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
 cursor = conn.cursor()
 
 # Create table if not exists
@@ -24,6 +34,9 @@ CREATE TABLE IF NOT EXISTS open_trades (
 """)
 conn.commit()
 
+# =====================================================
+# Webhook Endpoint
+# =====================================================
 @app.route('/chartink', methods=['POST'])
 def chartink_alert():
     data = request.get_json(force=True)
@@ -31,6 +44,8 @@ def chartink_alert():
 
     for item in data:
         symbol = item.get('symbol')
+        if not symbol:
+            continue
 
         # Simulate getting LTP — replace later with Breeze API call
         ltp = 100.0  # Placeholder
@@ -49,13 +64,26 @@ def chartink_alert():
 
         # --- Order placement logic (commented for now) ---
         # breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
-        # breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"), session_token=os.getenv("BREEZE_SESSION_TOKEN"))
-        # order_resp = breeze.place_order(stock_code=symbol, exchange_code="NSE", action="BUY", order_type="MARKET", quantity=qty)
+        # breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"),
+        #                         session_token=os.getenv("BREEZE_SESSION_TOKEN"))
+        # order_resp = breeze.place_order(
+        #     stock_code=symbol,
+        #     exchange_code="NSE",
+        #     action="BUY",
+        #     order_type="MARKET",
+        #     quantity=qty
+        # )
         # print(f"Order placed: {order_resp}")
         # ------------------------------------------------
 
     return jsonify({"status": "success"}), 200
 
 
+@app.route('/')
+def home():
+    return "Chartink Webhook Active ✅"
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
