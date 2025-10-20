@@ -1,138 +1,131 @@
 # =====================================================
-# exit_monitor_live_test.py  ✅ (LIVE TEST MODE)
+# exit_monitor_live_test.py — Live Breeze Connectivity + LTP Test
 # =====================================================
 import os
 import time
 import psycopg2
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from breeze_connect import BreezeConnect   # ✅ Use Breeze for live connection
-
+from breeze_connect import BreezeConnect  # ✅ Live API
 
 # =====================================================
-# Database Setup with SSL + Retry
+# Database Connection
 # =====================================================
 def get_db_connection():
-    """Reconnect-safe PostgreSQL connection with retries"""
-    DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://stock_list_hfv1_user:X7S7HahRta8wISA5vz7GtAnmMC3aHX5g@dpg-d3qdhlk9c44c73cm5iu0-a.singapore-postgres.render.com/stock_list_hfv1"
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if not DATABASE_URL:
+        raise ValueError("❌ DATABASE_URL environment variable not set")
+
     if "sslmode" not in DATABASE_URL:
         DATABASE_URL += "?sslmode=require"
 
-    for attempt in range(3):
-        try:
-            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
-            conn.autocommit = True
-            print(f"[{datetime.now()}] ✅ PostgreSQL connected (attempt {attempt+1})")
-            return conn
-        except Exception as e:
-            print(f"[{datetime.now()}] ⚠️ DB connection failed ({attempt+1}/3): {e}")
-            time.sleep(5)
-    raise ConnectionError("❌ Unable to connect to PostgreSQL after 3 attempts")
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+    conn.autocommit = True
+    print(f"[{datetime.now()}] ✅ Connected to PostgreSQL")
+    return conn
 
 
-# Initial connection
 conn = get_db_connection()
 cursor = conn.cursor()
 
+# =====================================================
+# BreezeConnect Setup
+# =====================================================
+try:
+    breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
+    breeze.generate_session(
+        api_secret=os.getenv("BREEZE_API_SECRET"),
+        session_token=os.getenv("BREEZE_API_SESSION")
+    )
+    print(f"[{datetime.now()}] 🌐 BreezeConnect session established successfully!")
+except Exception as e:
+    print(f"[{datetime.now()}] ❌ BreezeConnect login failed: {e}")
+    raise SystemExit(1)
 
 # =====================================================
-# Breeze Setup
-# =====================================================
-print(f"[{datetime.now()}] 🔄 Connecting to Breeze...")
-
-BREEZE_API_KEY = os.getenv("BREEZE_API_KEY")
-BREEZE_API_SECRET = os.getenv("BREEZE_API_SECRET")
-BREEZE_SESSION_TOKEN = os.getenv("BREEZE_SESSION_TOKEN")
-
-if not (BREEZE_API_KEY and BREEZE_API_SECRET and BREEZE_SESSION_TOKEN):
-    raise ValueError("❌ Missing Breeze API credentials in environment variables!")
-
-breeze = BreezeConnect(api_key=BREEZE_API_KEY)
-breeze.generate_session(api_secret=BREEZE_API_SECRET, session_token=BREEZE_SESSION_TOKEN)
-print(f"[{datetime.now()}] ✅ Breeze connection established successfully!")
-
-
-# =====================================================
-# Utility: Fetch LTP safely
+# Utility — Fetch LTP for a stock
 # =====================================================
 def get_ltp(symbol):
-    """Fetch live LTP from Breeze"""
+    """Fetch live LTP for a given NSE stock symbol."""
     try:
-        quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE", expiry_date=None)
-        if quote and 'Success' in quote.get('Status', ''):
-            ltp = float(quote['Success'][0]['ltp'])
+        quote = breeze.get_quotes(
+            stock_code=symbol,
+            exchange_code="NSE",
+            product_type="cash",
+            right="others",
+            expiry_date=None
+        )
+
+        # Validate response
+        if isinstance(quote, dict) and "Success" in quote:
+            ltp = float(quote["Success"][0]["ltp"])
+            print(f"[{datetime.now()}] ✅ {symbol} | LTP = {ltp}")
             return ltp
         else:
-            print(f"[{datetime.now()}] ⚠️ No LTP data for {symbol} → {quote}")
+            print(f"[{datetime.now()}] ⚠️ Invalid response for {symbol}: {quote}")
             return None
+
     except Exception as e:
-        print(f"[{datetime.now()}] ❌ Error fetching LTP for {symbol}: {e}")
+        print(f"[{datetime.now()}] ❌ Breeze LTP fetch failed for {symbol}: {e}")
         return None
 
 
 # =====================================================
-# Exit Check (NO ORDER PLACEMENT)
+# Sell Logic (Commented out for safety)
 # =====================================================
-def check_exit_condition(trade):
-    """Check exit condition and log LTP (no sell order executed)"""
+def check_and_sell(trade):
+    """Check exit conditions (mocked, no real sell)."""
     trade_id, symbol, buy_price, qty = trade
     ltp = get_ltp(symbol)
     if not ltp:
         return None
 
     change_pct = ((ltp - buy_price) / buy_price) * 100
-    print(f"[{datetime.now()}] 🔍 {symbol} | LTP={ltp} | Δ={change_pct:.2f}%")
 
-    # Only simulate exit (no order)
     if change_pct <= -0.5 or change_pct >= 4:
-        print(f"[{datetime.now()}] 🚨 Exit condition met for {symbol}, but order skipped (TEST MODE)")
+        print(f"[{datetime.now()}] 🚨 Exit signal for {symbol}: Δ={change_pct:.2f}%")
+        # 🧪 Commented for safety
+        # resp = breeze.place_order(
+        #     stock_code=symbol,
+        #     exchange_code="NSE",
+        #     action="SELL",
+        #     order_type="MARKET",
+        #     quantity=qty
+        # )
+        # print(f"Order Response: {resp}")
+    else:
+        print(f"[{datetime.now()}] ⏳ Holding {symbol} | Δ={change_pct:.2f}%")
 
 
 # =====================================================
-# Main Loop (Performance Tracked)
+# Monitor Loop (One-time run for testing)
 # =====================================================
-def monitor_loop():
-    global conn, cursor
-    print(f"🚀 Exit monitor (LIVE LTP CHECK MODE) started at {datetime.now()}")
+def monitor_once():
+    print(f"\n🚀 Starting live LTP check at {datetime.now()}")
 
-    while True:
-        try:
-            cursor.execute("SELECT id, symbol, buy_price, qty FROM open_trades")
-            trades = cursor.fetchall()
+    cursor.execute("SELECT id, symbol, buy_price, qty FROM open_trades LIMIT 100;")
+    trades = cursor.fetchall()
 
-            if not trades:
-                print(f"[{datetime.now()}] 💤 No open trades to monitor.")
-                time.sleep(60)
-                continue
+    if not trades:
+        print("No open trades found.")
+        return
 
-            print(f"[{datetime.now()}] 🔍 Checking {len(trades)} open trades...")
+    print(f"🔍 Checking {len(trades)} stocks via Breeze...")
 
-            start_time = time.time()
+    start_time = time.time()
 
-            # Parallel checks
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                futures = [executor.submit(check_exit_condition, trade) for trade in trades]
-                for future in as_completed(futures):
-                    future.result()
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(check_and_sell, trade) for trade in trades]
+        for future in as_completed(futures):
+            future.result()
 
-            duration = round(time.time() - start_time, 2)
-            print(f"✅ Checked {len(trades)} stocks in {duration} seconds.\n")
+    duration = round(time.time() - start_time, 2)
+    print(f"\n✅ Completed LTP fetch for {len(trades)} stocks in {duration} seconds")
 
-            # Save to performance log
-            with open("performance_log.txt", "a") as f:
-                f.write(f"{datetime.now()} | {len(trades)} trades | {duration}s\n")
-
-            time.sleep(60)
-
-        except psycopg2.Error:
-            print(f"[{datetime.now()}] ⚠️ DB connection lost. Retrying...")
-            time.sleep(5)
-            conn = get_db_connection()
-            cursor = conn.cursor()
-        except Exception as e:
-            print(f"[{datetime.now()}] ❌ Unexpected error: {e}")
-            time.sleep(60)
+    # Save to local log file
+    with open("performance_log.txt", "a") as f:
+        f.write(f"{datetime.now()} | {len(trades)} stocks | {duration}s\n")
 
 
 if __name__ == "__main__":
-    monitor_loop()
+    monitor_once()

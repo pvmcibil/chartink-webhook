@@ -4,8 +4,7 @@ import psycopg2
 from datetime import datetime
 import urllib.parse as urlparse
 import time
-
-# from breeze_connect import BreezeConnect  # Uncomment later for live trading
+from breeze_connect import BreezeConnect  # ✅ LIVE IMPORT
 
 app = Flask(__name__)
 
@@ -51,6 +50,28 @@ CREATE TABLE IF NOT EXISTS open_trades (
 conn.commit()
 
 # =====================================================
+# Breeze Connection
+# =====================================================
+def get_breeze():
+    """Authenticate Breeze and return connection"""
+    api_key = os.getenv("BREEZE_API_KEY")
+    api_secret = os.getenv("BREEZE_API_SECRET")
+    session_token = os.getenv("BREEZE_SESSION_TOKEN")
+
+    if not all([api_key, api_secret, session_token]):
+        raise ValueError("❌ Missing Breeze credentials (check env variables).")
+
+    try:
+        breeze = BreezeConnect(api_key=api_key)
+        breeze.generate_session(api_secret=api_secret, session_token=session_token)
+        print(f"[{datetime.now()}] ✅ Breeze API authenticated successfully")
+        return breeze
+    except Exception as e:
+        print(f"[{datetime.now()}] ❌ Breeze authentication failed: {e}")
+        return None
+
+
+# =====================================================
 # Webhook Endpoint
 # =====================================================
 @app.route('/chartink', methods=['POST'])
@@ -67,24 +88,20 @@ def chartink_alert():
 
     print(f"[{datetime.now()}] 📩 Received alert: {data}")
 
+    breeze = get_breeze()
+    if not breeze:
+        return jsonify({"error": "Failed to authenticate Breeze"}), 500
+
     for item in data:
         symbol = item.get('symbol')
         if not symbol:
             continue
 
-        ltp = 100.0  # Placeholder for now (use Breeze LTP later)
         qty = 10
         buy_time = datetime.now()
 
         try:
-            # --- Order placement logic (commented for now) ---
-            """
-            breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
-            breeze.generate_session(
-                api_secret=os.getenv("BREEZE_API_SECRET"),
-                session_token=os.getenv("BREEZE_SESSION_TOKEN")
-            )
-
+            # ✅ Place Live Order
             order_resp = breeze.place_order(
                 stock_code=symbol,
                 exchange_code="NSE",
@@ -96,6 +113,13 @@ def chartink_alert():
             )
 
             if order_resp and "Success" in str(order_resp).lower():
+                # Get latest traded price
+                try:
+                    quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE", product_type="cash")
+                    ltp = float(quote.get("Success", [{}])[0].get("ltp", 0))
+                except Exception:
+                    ltp = 0.0
+
                 cursor.execute(
                     "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
                     (symbol, ltp, qty, buy_time)
@@ -104,26 +128,11 @@ def chartink_alert():
                 print(f"[{datetime.now()}] ✅ Order success & recorded: {symbol} @ {ltp}")
             else:
                 print(f"[{datetime.now()}] ⚠️ Order failed for {symbol}: {order_resp}")
-            """
-            # --- TEST MODE: Simulate successful order insertion ---
-            cursor.execute(
-                "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
-                (symbol, ltp, qty, buy_time)
-            )
-            conn.commit()
-            print(f"[{datetime.now()}] 🧪 (TEST) Trade recorded in DB: {symbol} @ {ltp}")
-            # -------------------------------------------------------
 
         except (psycopg2.InterfaceError, psycopg2.OperationalError):
             print(f"[{datetime.now()}] 🔄 Lost DB connection, retrying...")
             conn = get_db_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
-                (symbol, ltp, qty, buy_time)
-            )
-            conn.commit()
-            print(f"[{datetime.now()}] ✅ Reconnected and recorded: {symbol}")
 
         except Exception as e:
             print(f"[{datetime.now()}] ❌ Error handling {symbol}: {e}")
@@ -136,7 +145,7 @@ def chartink_alert():
 # =====================================================
 @app.route('/')
 def home():
-    return "🚀 Chartink Webhook Active — DB Connected and Ready"
+    return "🚀 Chartink Webhook Live — Breeze + DB Connected"
 
 
 # =====================================================
