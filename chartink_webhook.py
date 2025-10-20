@@ -2,9 +2,8 @@ from flask import Flask, request, jsonify
 import os
 import psycopg2
 from datetime import datetime
-import urllib.parse as urlparse
 import time
-from breeze_connect import BreezeConnect  # ✅ LIVE IMPORT
+from breeze_connect import BreezeConnect  # ✅ Live Breeze API
 
 app = Flask(__name__)
 
@@ -12,7 +11,7 @@ app = Flask(__name__)
 # Database Connection (with SSL + Retry)
 # =====================================================
 def get_db_connection():
-    """Robust PostgreSQL connection with infinite retry"""
+    """Robust PostgreSQL connection with retry mechanism."""
     DATABASE_URL = os.getenv("DATABASE_URL")
     if not DATABASE_URL:
         raise ValueError("❌ DATABASE_URL environment variable not set")
@@ -42,12 +41,14 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS open_trades (
     id SERIAL PRIMARY KEY,
     symbol TEXT,
+    trigger_price FLOAT,
     buy_price FLOAT,
     qty INT,
     buy_time TIMESTAMP
 );
 """)
 conn.commit()
+
 
 # =====================================================
 # Breeze Connection
@@ -72,7 +73,7 @@ def get_breeze():
 
 
 # =====================================================
-# Webhook Endpoint
+# Webhook Endpoint — Chartink → Breeze → PostgreSQL
 # =====================================================
 @app.route('/chartink', methods=['POST'])
 def chartink_alert():
@@ -88,20 +89,28 @@ def chartink_alert():
 
     print(f"[{datetime.now()}] 📩 Received alert: {data}")
 
+    # ✅ Breeze connection
     breeze = get_breeze()
     if not breeze:
         return jsonify({"error": "Failed to authenticate Breeze"}), 500
 
-    for item in data:
-        symbol = item.get('symbol')
-        if not symbol:
-            continue
+    # ✅ Parse stocks and trigger prices
+    stocks_str = data.get('stocks', '')
+    prices_str = data.get('trigger_prices', '')
+    stock_list = [s.strip() for s in stocks_str.split(',') if s.strip()]
+    price_list = [p.strip() for p in prices_str.split(',') if p.strip()]
 
+    # Pair stocks with their trigger prices (if available)
+    stock_pairs = list(zip(stock_list, price_list + ['0'] * (len(stock_list) - len(price_list))))
+
+    for symbol, trigger_price in stock_pairs:
         qty = 10
         buy_time = datetime.now()
 
         try:
-            # ✅ Place Live Order
+            print(f"[{datetime.now()}] 🟢 Processing {symbol} @ Trigger {trigger_price}")
+
+            # ✅ Place Live Order (BUY)
             order_resp = breeze.place_order(
                 stock_code=symbol,
                 exchange_code="NSE",
@@ -113,19 +122,25 @@ def chartink_alert():
             )
 
             if order_resp and "Success" in str(order_resp).lower():
-                # Get latest traded price
                 try:
-                    quote = breeze.get_quotes(stock_code=symbol, exchange_code="NSE", product_type="cash")
+                    # Fetch live price
+                    quote = breeze.get_quotes(
+                        stock_code=symbol,
+                        exchange_code="NSE",
+                        product_type="cash"
+                    )
                     ltp = float(quote.get("Success", [{}])[0].get("ltp", 0))
                 except Exception:
                     ltp = 0.0
 
+                # Insert into database
                 cursor.execute(
-                    "INSERT INTO open_trades (symbol, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s)",
-                    (symbol, ltp, qty, buy_time)
+                    "INSERT INTO open_trades (symbol, trigger_price, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s, %s)",
+                    (symbol, float(trigger_price), ltp, qty, buy_time)
                 )
                 conn.commit()
                 print(f"[{datetime.now()}] ✅ Order success & recorded: {symbol} @ {ltp}")
+
             else:
                 print(f"[{datetime.now()}] ⚠️ Order failed for {symbol}: {order_resp}")
 
