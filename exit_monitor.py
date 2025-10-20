@@ -1,5 +1,5 @@
 # =====================================================
-# exit_monitor_live_test.py — Live Breeze Connectivity + LTP Test
+# exit_monitor_live.py — Live Breeze Exit Monitor
 # =====================================================
 import os
 import time
@@ -35,7 +35,7 @@ try:
     breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
     breeze.generate_session(
         api_secret=os.getenv("BREEZE_API_SECRET"),
-        session_token=os.getenv("BREEZE_API_SESSION")
+        session_token=os.getenv("BREEZE_SESSION_TOKEN")  # ✅ fixed variable name
     )
     print(f"[{datetime.now()}] 🌐 BreezeConnect session established successfully!")
 except Exception as e:
@@ -56,7 +56,6 @@ def get_ltp(symbol):
             expiry_date=None
         )
 
-        # Validate response
         if isinstance(quote, dict) and "Success" in quote:
             ltp = float(quote["Success"][0]["ltp"])
             print(f"[{datetime.now()}] ✅ {symbol} | LTP = {ltp}")
@@ -71,10 +70,10 @@ def get_ltp(symbol):
 
 
 # =====================================================
-# Sell Logic (Commented out for safety)
+# Sell Logic — LIVE ORDERS
 # =====================================================
 def check_and_sell(trade):
-    """Check exit conditions (mocked, no real sell)."""
+    """Check exit conditions and place live SELL order via Breeze."""
     trade_id, symbol, buy_price, qty = trade
     ltp = get_ltp(symbol)
     if not ltp:
@@ -84,21 +83,37 @@ def check_and_sell(trade):
 
     if change_pct <= -0.5 or change_pct >= 4:
         print(f"[{datetime.now()}] 🚨 Exit signal for {symbol}: Δ={change_pct:.2f}%")
-        # 🧪 Commented for safety
-        # resp = breeze.place_order(
-        #     stock_code=symbol,
-        #     exchange_code="NSE",
-        #     action="SELL",
-        #     order_type="MARKET",
-        #     quantity=qty
-        # )
-        # print(f"Order Response: {resp}")
+
+        try:
+            resp = breeze.place_order(
+                stock_code=symbol,
+                exchange_code="NSE",
+                product="margin",
+                action="SELL",
+                order_type="MARKET",
+                quantity=qty,
+                validity="DAY"
+            )
+
+            print(f"[{datetime.now()}] ✅ SELL ORDER placed for {symbol} | Response: {resp}")
+
+            # Record sell in DB
+            cursor.execute(
+                "DELETE FROM open_trades WHERE id = %s",
+                (trade_id,)
+            )
+            conn.commit()
+            print(f"[{datetime.now()}] 🗑️ Removed {symbol} from open_trades after SELL")
+
+        except Exception as e:
+            print(f"[{datetime.now()}] ❌ Order placement failed for {symbol}: {e}")
+
     else:
         print(f"[{datetime.now()}] ⏳ Holding {symbol} | Δ={change_pct:.2f}%")
 
 
 # =====================================================
-# Monitor Loop (One-time run for testing)
+# Monitor Loop (One-time run)
 # =====================================================
 def monitor_once():
     print(f"\n🚀 Starting live LTP check at {datetime.now()}")
@@ -122,7 +137,7 @@ def monitor_once():
     duration = round(time.time() - start_time, 2)
     print(f"\n✅ Completed LTP fetch for {len(trades)} stocks in {duration} seconds")
 
-    # Save to local log file
+    # Save to local log
     with open("performance_log.txt", "a") as f:
         f.write(f"{datetime.now()} | {len(trades)} stocks | {duration}s\n")
 
