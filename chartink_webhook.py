@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 import psycopg2
+import pandas as pd
 from datetime import datetime
 import time
 from breeze_connect import BreezeConnect  # ✅ Live Breeze API
@@ -41,6 +42,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS open_trades (
     id SERIAL PRIMARY KEY,
     symbol TEXT,
+    stock_code TEXT,
     trigger_price FLOAT,
     buy_price FLOAT,
     qty INT,
@@ -49,9 +51,8 @@ CREATE TABLE IF NOT EXISTS open_trades (
 """)
 conn.commit()
 
-
 # =====================================================
-# Breeze Connection
+# Breeze Connection + Instrument Cache
 # =====================================================
 def get_breeze():
     """Authenticate Breeze and return connection"""
@@ -73,11 +74,49 @@ def get_breeze():
 
 
 # =====================================================
+# Load / Cache Instrument List
+# =====================================================
+def load_instruments(breeze):
+    """Fetch or load cached Breeze instruments"""
+    try:
+        if os.path.exists("breeze_instruments.csv"):
+            df = pd.read_csv("breeze_instruments.csv")
+            print(f"[{datetime.now()}] ⚡ Loaded cached instruments ({len(df)} rows)")
+        else:
+            print(f"[{datetime.now()}] ⏳ Fetching instruments from Breeze...")
+            instruments = breeze.get_instruments()
+            df = pd.DataFrame(instruments)
+            df.to_csv("breeze_instruments.csv", index=False)
+            print(f"[{datetime.now()}] ✅ Cached {len(df)} instruments to file")
+        return df
+    except Exception as e:
+        print(f"[{datetime.now()}] ❌ Error loading instruments: {e}")
+        return pd.DataFrame()
+
+
+def get_stock_code(symbol):
+    """Lookup ICICI-specific stock_code for NSE symbol"""
+    match = instrument_df[
+        (instrument_df['exchange_code'] == 'NSE') &
+        (instrument_df['symbol'].str.upper() == symbol.upper())
+    ]
+    if not match.empty:
+        return match.iloc[0]['stock_code']
+    return None
+
+
+# =====================================================
+# Initialize Breeze + Instrument Cache
+# =====================================================
+breeze = get_breeze()
+instrument_df = load_instruments(breeze)
+
+# =====================================================
 # Webhook Endpoint — Chartink → Breeze → PostgreSQL
 # =====================================================
 @app.route('/chartink', methods=['POST'])
 def chartink_alert():
-    global conn, cursor
+    global conn, cursor, breeze, instrument_df
 
     try:
         data = request.get_json(force=True)
@@ -89,18 +128,16 @@ def chartink_alert():
 
     print(f"[{datetime.now()}] 📩 Received alert: {data}")
 
-    # ✅ Breeze connection
-    breeze = get_breeze()
+    # Reconnect Breeze if expired
     if not breeze:
-        return jsonify({"error": "Failed to authenticate Breeze"}), 500
+        breeze = get_breeze()
+        instrument_df = load_instruments(breeze)
 
     # ✅ Parse stocks and trigger prices
     stocks_str = data.get('stocks', '')
     prices_str = data.get('trigger_prices', '')
     stock_list = [s.strip() for s in stocks_str.split(',') if s.strip()]
     price_list = [p.strip() for p in prices_str.split(',') if p.strip()]
-
-    # Pair stocks with their trigger prices (if available)
     stock_pairs = list(zip(stock_list, price_list + ['0'] * (len(stock_list) - len(price_list))))
 
     for symbol, trigger_price in stock_pairs:
@@ -110,9 +147,14 @@ def chartink_alert():
         try:
             print(f"[{datetime.now()}] 🟢 Processing {symbol} @ Trigger {trigger_price}")
 
+            stock_code = get_stock_code(symbol)
+            if not stock_code:
+                print(f"[{datetime.now()}] ⚠️ Skipping {symbol} — no Breeze stock_code found.")
+                continue
+
             # ✅ Place Live Order (BUY)
             order_resp = breeze.place_order(
-                stock_code=symbol,
+                stock_code=stock_code,
                 exchange_code="NSE",
                 product="margin",
                 action="BUY",
@@ -125,7 +167,7 @@ def chartink_alert():
                 try:
                     # Fetch live price
                     quote = breeze.get_quotes(
-                        stock_code=symbol,
+                        stock_code=stock_code,
                         exchange_code="NSE",
                         product_type="cash"
                     )
@@ -135,11 +177,11 @@ def chartink_alert():
 
                 # Insert into database
                 cursor.execute(
-                    "INSERT INTO open_trades (symbol, trigger_price, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s, %s)",
-                    (symbol, float(trigger_price), ltp, qty, buy_time)
+                    "INSERT INTO open_trades (symbol, stock_code, trigger_price, buy_price, qty, buy_time) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (symbol, stock_code, float(trigger_price), ltp, qty, buy_time)
                 )
                 conn.commit()
-                print(f"[{datetime.now()}] ✅ Order success & recorded: {symbol} @ {ltp}")
+                print(f"[{datetime.now()}] ✅ Order success & recorded: {symbol} ({stock_code}) @ {ltp}")
 
             else:
                 print(f"[{datetime.now()}] ⚠️ Order failed for {symbol}: {order_resp}")
@@ -160,7 +202,7 @@ def chartink_alert():
 # =====================================================
 @app.route('/')
 def home():
-    return "🚀 Chartink Webhook Live — Breeze + DB Connected"
+    return "🚀 Chartink Webhook Live — Breeze + DB Connected + Stock Code Mapping"
 
 
 # =====================================================
