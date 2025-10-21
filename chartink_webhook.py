@@ -1,178 +1,246 @@
-"""
-chartink_webhook.py
--------------------
-Production-ready FastAPI app for Chartink → Fyers order automation.
-✅ Handles multiple stocks in a single Chartink alert
-✅ Places dynamic-sized buy orders in Fyers
-✅ Auto-refreshes Fyers token daily (in background)
-✅ Fully environment-configurable
-"""
-
-from fastapi import FastAPI, Request
-from fyers_apiv3 import fyersModel
 import os
 import json
-import asyncio
-import requests
-import threading
 import time
+import threading
+import requests
+from fastapi import FastAPI, Request
+from fyers_apiv3 import fyersModel
 
-app = FastAPI(title="Chartink → Fyers Webhook")
+# ======================================================
+# 🔧 CONFIGURATION
+# ======================================================
 
-# ------------------ CONFIGURATION ------------------
+# Fyers App Credentials (stored as Render environment variables)
+FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+FYERS_CLIENT_SECRET = os.getenv("FYERS_CLIENT_SECRET")
+FYERS_APP_ID_TYPE = "2"
 
-# Required Fyers credentials
-CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
-CLIENT_SECRET = os.getenv("FYERS_CLIENT_SECRET")
-ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
-REFRESH_TOKEN = os.getenv("FYERS_REFRESH_TOKEN")
+# Token file path (you uploaded this)
+TOKEN_FILE = "access_token.json"
 
-if not all([CLIENT_ID, CLIENT_SECRET, ACCESS_TOKEN, REFRESH_TOKEN]):
-    raise ValueError("❌ Missing one or more required environment variables in Render!")
+# Target and Stoploss percentages
+TARGET_PCT = float(os.getenv("TARGET_PCT", 5))   # 5% target
+STOPLOSS_PCT = float(os.getenv("STOPLOSS_PCT", 1))  # 1% stoploss
 
-# Quantity and pricing rules (configurable)
-LOW_PRICE_LIMIT = float(os.getenv("LOW_PRICE_LIMIT", 200))
-MID_PRICE_LIMIT = float(os.getenv("MID_PRICE_LIMIT", 600))
-LOW_QTY = int(os.getenv("LOW_QTY", 10))
-HIGH_QTY = int(os.getenv("HIGH_QTY", 5))
+# Fyers API endpoints
+FYERS_API_BASE = "https://api-t1.fyers.in/api/v3"
 
-print(f"⚙️ Quantity Logic: price ≤ {MID_PRICE_LIMIT} → {LOW_QTY}, above {MID_PRICE_LIMIT} → {HIGH_QTY}")
+# ======================================================
+# 🧩 INITIALIZATION
+# ======================================================
 
-# Initialize Fyers
-fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=ACCESS_TOKEN, is_async=True)
+app = FastAPI()
+fyers = None
+open_positions = {}  # store trades being tracked
 
 
-# ------------------ TOKEN REFRESH ------------------
-def refresh_fyers_token():
-    """Refresh Fyers access token using refresh token (valid 30 days)."""
-    print("🔄 Refreshing Fyers access token...")
+# ======================================================
+# 🔐 FYERS AUTHENTICATION HANDLING
+# ======================================================
 
-    url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
-    payload = {
+def load_tokens():
+    """Load tokens from JSON file."""
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_tokens(tokens):
+    """Save refreshed tokens."""
+    with open(TOKEN_FILE, "w") as f:
+        json.dump(tokens, f, indent=4)
+
+def refresh_access_token():
+    """Refresh access token using refresh_token."""
+    tokens = load_tokens()
+    if not tokens.get("refresh_token"):
+        print("⚠️ Missing refresh_token. Please reauthenticate.")
+        return
+
+    data = {
         "grant_type": "refresh_token",
-        "appIdHash": CLIENT_SECRET,
-        "refresh_token": REFRESH_TOKEN,
+        "appIdHash": FYERS_CLIENT_ID,
+        "refresh_token": tokens["refresh_token"],
     }
 
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        data = res.json()
-
-        if "access_token" in data:
-            new_token = data["access_token"]
-            os.environ["FYERS_ACCESS_TOKEN"] = new_token
-            fyers.token = new_token
-            print("✅ Fyers access token refreshed successfully.")
-            return new_token
+        res = requests.post(f"{FYERS_API_BASE}/generate_token", json=data).json()
+        if "access_token" in res:
+            print("🔄 Access token refreshed.")
+            tokens["access_token"] = res["access_token"]
+            save_tokens(tokens)
         else:
-            print("⚠️ Failed to refresh token:", data)
-            return None
-
+            print(f"❌ Token refresh failed: {res}")
     except Exception as e:
-        print("❌ Error refreshing token:", e)
+        print(f"⚠️ Exception during token refresh: {e}")
+
+def get_fyers_client():
+    """Return a ready Fyers client instance."""
+    global fyers
+    tokens = load_tokens()
+    access_token = tokens.get("access_token")
+    if not access_token:
+        print("❌ No access token found.")
         return None
 
+    fyers = fyersModel.FyersModel(client_id=FYERS_CLIENT_ID, token=access_token)
+    return fyers
 
-def background_token_refresh():
-    """Runs in background to refresh token every ~23 hours."""
+
+# ======================================================
+# 📩 CHARTINK WEBHOOK HANDLER
+# ======================================================
+
+@app.post("/chartink")
+async def chartink_alert(request: Request):
+    """Receive Chartink alerts and place orders in Fyers."""
+    payload = await request.json()
+    print(f"📩 Received alert: {payload}")
+
+    stocks = payload.get("stocks", "")
+    trigger_prices = payload.get("trigger_prices", "")
+    stock_list = [s.strip().upper() for s in stocks.split(",") if s.strip()]
+    price_list = [float(p.strip()) for p in trigger_prices.split(",") if p.strip()]
+
+    for i, stock in enumerate(stock_list):
+        price = price_list[i] if i < len(price_list) else None
+        if price:
+            place_buy_order(stock, price)
+
+    return {"status": "success", "received": payload}
+
+
+# ======================================================
+# 💰 ORDER PLACEMENT & MANAGEMENT
+# ======================================================
+
+def place_buy_order(symbol: str, price: float):
+    """Place a market BUY order and register for exit monitoring."""
+    fyers_client = get_fyers_client()
+    if not fyers_client:
+        print("⚠️ Fyers client not ready.")
+        return
+
+    # Convert to Fyers format (NSE:STOCK)
+    fyers_symbol = f"NSE:{symbol}-EQ"
+
+    # Decide quantity based on price
+    qty = 10 if price <= 200 else 5
+
+    # Build order
+    order_data = {
+        "symbol": fyers_symbol,
+        "qty": qty,
+        "type": 2,       # Market order
+        "side": 1,       # Buy
+        "productType": "INTRADAY",
+        "limitPrice": 0,
+        "stopPrice": 0,
+        "validity": "DAY",
+        "offlineOrder": "False"
+    }
+
+    try:
+        response = fyers_client.place_order(order_data)
+        print(f"✅ Buy order placed: {response}")
+
+        if "id" in response:
+            order_id = response["id"]
+            open_positions[symbol] = {
+                "order_id": order_id,
+                "entry_price": price,
+                "qty": qty,
+                "target": price * (1 + TARGET_PCT / 100),
+                "stoploss": price * (1 - STOPLOSS_PCT / 100),
+                "symbol": fyers_symbol
+            }
+    except Exception as e:
+        print(f"❌ Error placing buy order for {symbol}: {e}")
+
+
+def place_sell_order(symbol: str, qty: int):
+    """Place a SELL order for exit."""
+    fyers_client = get_fyers_client()
+    if not fyers_client:
+        print("⚠️ Fyers client not ready for sell order.")
+        return
+
+    fyers_symbol = f"NSE:{symbol}-EQ"
+    order_data = {
+        "symbol": fyers_symbol,
+        "qty": qty,
+        "type": 2,       # Market
+        "side": -1,      # Sell
+        "productType": "INTRADAY",
+        "limitPrice": 0,
+        "stopPrice": 0,
+        "validity": "DAY",
+        "offlineOrder": "False"
+    }
+
+    try:
+        response = fyers_client.place_order(order_data)
+        print(f"💰 Exit order placed for {symbol}: {response}")
+    except Exception as e:
+        print(f"❌ Error placing exit order for {symbol}: {e}")
+
+
+# ======================================================
+# 📊 EXIT MONITORING (Target / Stoploss)
+# ======================================================
+
+def get_ltp(symbol: str) -> float:
+    """Get last traded price for symbol."""
+    fyers_client = get_fyers_client()
+    if not fyers_client:
+        return 0.0
+    try:
+        data = fyers_client.quotes({"symbols": f"NSE:{symbol}-EQ"})
+        return float(data["d"][0]["v"]["lp"])
+    except Exception as e:
+        print(f"⚠️ Failed to fetch LTP for {symbol}: {e}")
+        return 0.0
+
+def monitor_exits():
+    """Background thread to monitor all open trades."""
+    print("🚀 Exit monitor thread started.")
     while True:
-        refresh_fyers_token()
-        time.sleep(23 * 3600)
+        try:
+            for sym, trade in list(open_positions.items()):
+                current = get_ltp(sym)
+                entry = trade["entry_price"]
+                target = trade["target"]
+                stoploss = trade["stoploss"]
+                qty = trade["qty"]
 
+                if current >= target:
+                    print(f"🎯 {sym} hit target {target}, current {current}")
+                    place_sell_order(sym, qty)
+                    del open_positions[sym]
+
+                elif current <= stoploss:
+                    print(f"🛑 {sym} hit stoploss {stoploss}, current {current}")
+                    place_sell_order(sym, qty)
+                    del open_positions[sym]
+
+            time.sleep(60)  # check every minute
+        except Exception as e:
+            print(f"⚠️ Exit monitor error: {e}")
+            time.sleep(60)
+
+
+# ======================================================
+# 🚀 STARTUP EVENTS
+# ======================================================
 
 @app.on_event("startup")
-def start_background():
-    """Start token refresher when app launches."""
-    threading.Thread(target=background_token_refresh, daemon=True).start()
-    print("🚀 Background token refresh started.")
+def startup_event():
+    """Initialize Fyers client and start background thread."""
+    print("🚀 Starting Chartink Webhook Service...")
+    refresh_access_token()
+    get_fyers_client()
+    threading.Thread(target=monitor_exits, daemon=True).start()
 
-
-# ------------------ ORDER LOGIC ------------------
-async def place_fyers_order(symbol: str, price: float):
-    """
-    Places MARKET buy order with dynamic quantity based on price.
-    Quantity thresholds are environment-configurable.
-    """
-    try:
-        full_symbol = f"NSE:{symbol}-EQ"
-
-        # --- Flexible quantity logic ---
-        if price <= LOW_PRICE_LIMIT:
-            qty = LOW_QTY
-        elif price <= MID_PRICE_LIMIT:
-            qty = LOW_QTY
-        else:
-            qty = HIGH_QTY
-
-        order = {
-            "symbol": full_symbol,
-            "qty": qty,
-            "type": 2,            # MARKET
-            "side": 1,            # BUY
-            "productType": "INTRADAY",
-            "limitPrice": 0,
-            "stopPrice": 0,
-            "disclosedQty": 0,
-            "validity": "DAY",
-            "offlineOrder": "False"
-        }
-
-        response = await fyers.place_order(order)
-        print(f"✅ Order placed for {full_symbol} @ {price} (Qty: {qty}) → {response}")
-        return {"symbol": symbol, "price": price, "qty": qty, "response": response}
-
-    except Exception as e:
-        print(f"❌ Error placing order for {symbol}: {e}")
-        return {"symbol": symbol, "error": str(e)}
-
-
-# ------------------ WEBHOOK ------------------
-@app.post("/chartink")
-async def chartink_webhook(request: Request):
-    """
-    Webhook endpoint for Chartink alerts.
-    Handles multiple stocks, places orders concurrently.
-    """
-    try:
-        data = await request.json()
-        print(f"📩 Received alert: {data}")
-
-        stocks = data.get("stocks", "")
-        prices = data.get("trigger_prices", "")
-        if not stocks:
-            return {"status": "error", "message": "No stocks in alert"}
-
-        stock_list = [s.strip() for s in stocks.split(",")]
-        price_list = [float(p) for p in prices.split(",")] if prices else []
-
-        # Place all orders concurrently
-        tasks = []
-        for i, symbol in enumerate(stock_list):
-            price = price_list[i] if i < len(price_list) else 0.0
-            tasks.append(place_fyers_order(symbol, price))
-
-        results = await asyncio.gather(*tasks)
-        return {"status": "ok", "results": results}
-
-    except Exception as e:
-        print("❌ Error processing alert:", e)
-        return {"status": "error", "message": str(e)}
-
-
-# ------------------ HEALTH ------------------
-@app.get("/")
-def root():
-    return {"status": "running", "message": "Chartink → Fyers webhook active ✅"}
-
-
-@app.get("/refresh_token")
-def manual_refresh():
-    """Manually trigger token refresh (optional)."""
-    new_token = refresh_fyers_token()
-    return {"status": "ok" if new_token else "failed"}
-
-
-# ------------------ LOCAL TEST ------------------
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("chartink_webhook:app", host="0.0.0.0", port=8000)
+# ======================================================
+# ✅ END
+# ======================================================
