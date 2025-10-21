@@ -1,0 +1,16 @@
+from breeze_connect import BreezeConnect
+import os
+
+breeze = BreezeConnect(api_key=os.getenv("BREEZE_API_KEY"))
+
+# Add your real session token here temporarily
+breeze.generate_session(api_secret=os.getenv("BREEZE_API_SECRET"),
+                        session_token=os.getenv("BREEZE_API_SESSION"))
+
+print("✅ Connected successfully to Breeze")
+
+try:
+    data = breeze.get_quotes(stock_code="RELIANCE", exchange_code="NSE", expiry_date=None, product_type="cash", right=None, strike_price=None)
+    print("✅ Quote data received:", data)
+except Exception as e:
+    print("❌ Error fetching LTP:", e)

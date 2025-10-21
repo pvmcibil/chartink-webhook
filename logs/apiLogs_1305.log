@@ -1,0 +1,400 @@
+2025-10-20 08:10:32,407 - <Response [401]>
+2025-10-20 08:10:32,412 - <Response [401]>
+2025-10-20 08:10:32,418 - <Response [401]>
+2025-10-20 08:10:32,423 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:32,428 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:32,433 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:32,486 - <Response [503]>
+2025-10-20 08:10:32,486 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,553 - <Response [503]>
+2025-10-20 08:10:32,553 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,638 - <Response [503]>
+2025-10-20 08:10:32,639 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,715 - <Response [503]>
+2025-10-20 08:10:32,715 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,891 - <Response [503]>
+2025-10-20 08:10:32,894 - <Response [503]>
+2025-10-20 08:10:32,896 - <Response [503]>
+2025-10-20 08:10:32,896 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,896 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,896 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:32,989 - <Response [503]>
+2025-10-20 08:10:32,990 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:33,088 - <Response [503]>
+2025-10-20 08:10:33,088 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:33,148 - <Response [503]>
+2025-10-20 08:10:33,148 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:33,252 - <Response [401]>
+2025-10-20 08:10:33,257 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:33,403 - <Response [401]>
+2025-10-20 08:10:33,408 - <Response [401]>
+2025-10-20 08:10:33,410 - <Response [503]>
+2025-10-20 08:10:33,415 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:33,417 - <Response [503]>
+2025-10-20 08:10:33,422 - <Response [401]>
+2025-10-20 08:10:33,427 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:33,428 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:33,428 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:33,436 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:33,661 - <Response [401]>
+2025-10-20 08:10:33,670 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:38,834 - <Response [401]>
+2025-10-20 08:10:38,840 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:39,008 - <Response [401]>
+2025-10-20 08:10:39,013 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:39,095 - <Response [503]>
+2025-10-20 08:10:39,096 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:39,140 - <Response [401]>
+2025-10-20 08:10:39,145 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:39,189 - <Response [503]>
+2025-10-20 08:10:39,189 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:39,277 - <Response [503]>
+2025-10-20 08:10:39,277 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:39,438 - <Response [401]>
+2025-10-20 08:10:39,443 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:39,516 - <Response [401]>
+2025-10-20 08:10:39,521 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:39,621 - <Response [503]>
+2025-10-20 08:10:39,621 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:39,648 - <Response [503]>
+2025-10-20 08:10:39,648 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:39,984 - <Response [503]>
+2025-10-20 08:10:39,985 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,027 - <Response [503]>
+2025-10-20 08:10:40,027 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,291 - <Response [503]>
+2025-10-20 08:10:40,291 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,299 - <Response [503]>
+2025-10-20 08:10:40,300 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,313 - <Response [503]>
+2025-10-20 08:10:40,314 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,321 - <Response [503]>
+2025-10-20 08:10:40,322 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,325 - <Response [503]>
+2025-10-20 08:10:40,326 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:40,650 - <Response [401]>
+2025-10-20 08:10:40,657 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:40,974 - <Response [401]>
+2025-10-20 08:10:40,981 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:41,115 - <Response [401]>
+2025-10-20 08:10:41,123 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:45,474 - <Response [401]>
+2025-10-20 08:10:45,480 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:45,583 - <Response [401]>
+2025-10-20 08:10:45,589 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:45,726 - <Response [503]>
+2025-10-20 08:10:45,726 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:45,761 - <Response [503]>
+2025-10-20 08:10:45,764 - <Response [503]>
+2025-10-20 08:10:45,764 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:45,764 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:45,798 - <Response [503]>
+2025-10-20 08:10:45,801 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:45,800 - <Response [503]>
+2025-10-20 08:10:45,801 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:46,074 - <Response [401]>
+2025-10-20 08:10:46,079 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:46,497 - <Response [401]>
+2025-10-20 08:10:46,502 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:46,617 - <Response [401]>
+2025-10-20 08:10:46,623 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:46,771 - <Response [503]>
+2025-10-20 08:10:46,771 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:46,877 - <Response [503]>
+2025-10-20 08:10:46,878 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:47,141 - <Response [503]>
+2025-10-20 08:10:47,141 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:47,174 - <Response [503]>
+2025-10-20 08:10:47,174 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:47,205 - <Response [503]>
+2025-10-20 08:10:47,206 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:47,506 - <Response [401]>
+2025-10-20 08:10:47,511 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:47,539 - <Response [401]>
+2025-10-20 08:10:47,544 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:48,071 - <Response [503]>
+2025-10-20 08:10:48,071 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:48,765 - <Response [401]>
+2025-10-20 08:10:48,770 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:49,060 - <Response [401]>
+2025-10-20 08:10:49,067 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:52,170 - <Response [401]>
+2025-10-20 08:10:52,175 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:52,185 - <Response [401]>
+2025-10-20 08:10:52,190 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:52,939 - <Response [401]>
+2025-10-20 08:10:52,945 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:52,950 - <Response [401]>
+2025-10-20 08:10:52,956 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:53,083 - <Response [503]>
+2025-10-20 08:10:53,084 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:53,090 - <Response [503]>
+2025-10-20 08:10:53,090 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:53,199 - <Response [401]>
+2025-10-20 08:10:53,211 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:53,338 - <Response [503]>
+2025-10-20 08:10:53,338 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:53,382 - <Response [401]>
+2025-10-20 08:10:53,387 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:53,570 - <Response [503]>
+2025-10-20 08:10:53,571 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:53,613 - <Response [503]>
+2025-10-20 08:10:53,618 - <Response [401]>
+2025-10-20 08:10:53,618 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:53,624 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:54,043 - <Response [503]>
+2025-10-20 08:10:54,044 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:54,333 - <Response [503]>
+2025-10-20 08:10:54,333 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:54,409 - <Response [503]>
+2025-10-20 08:10:54,409 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:54,516 - <Response [503]>
+2025-10-20 08:10:54,516 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:54,883 - <Response [401]>
+2025-10-20 08:10:54,888 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:55,145 - <Response [401]>
+2025-10-20 08:10:55,150 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:55,254 - <Response [401]>
+2025-10-20 08:10:55,259 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:56,123 - <Response [503]>
+2025-10-20 08:10:56,123 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:59,386 - <Response [401]>
+2025-10-20 08:10:59,392 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:10:59,550 - <Response [503]>
+2025-10-20 08:10:59,550 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:59,811 - <Response [503]>
+2025-10-20 08:10:59,812 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:59,886 - <Response [503]>
+2025-10-20 08:10:59,887 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:10:59,895 - <Response [503]>
+2025-10-20 08:10:59,895 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,120 - <Response [401]>
+2025-10-20 08:11:00,125 - <Response [401]>
+2025-10-20 08:11:00,130 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,135 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,142 - <Response [503]>
+2025-10-20 08:11:00,147 - <Response [401]>
+2025-10-20 08:11:00,147 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,153 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,203 - <Response [503]>
+2025-10-20 08:11:00,204 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,306 - <Response [503]>
+2025-10-20 08:11:00,306 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,314 - <Response [503]>
+2025-10-20 08:11:00,315 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,547 - <Response [401]>
+2025-10-20 08:11:00,552 - <Response [401]>
+2025-10-20 08:11:00,558 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,563 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,590 - <Response [503]>
+2025-10-20 08:11:00,593 - <Response [503]>
+2025-10-20 08:11:00,593 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,593 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,605 - <Response [401]>
+2025-10-20 08:11:00,617 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:11:00,701 - <Response [503]>
+2025-10-20 08:11:00,701 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,798 - <Response [503]>
+2025-10-20 08:11:00,798 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:11:00,965 - <Response [503]>
+2025-10-20 08:11:00,965 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,682 - <Response [503]>
+2025-10-20 08:22:10,683 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,695 - <Response [401]>
+2025-10-20 08:22:10,702 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:10,708 - <Response [401]>
+2025-10-20 08:22:10,711 - <Response [503]>
+2025-10-20 08:22:10,718 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:10,719 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,746 - <Response [401]>
+2025-10-20 08:22:10,750 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:10,779 - <Response [503]>
+2025-10-20 08:22:10,779 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,788 - <Response [503]>
+2025-10-20 08:22:10,789 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,827 - <Response [503]>
+2025-10-20 08:22:10,830 - <Response [503]>
+2025-10-20 08:22:10,831 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,836 - <Response [401]>
+2025-10-20 08:22:10,839 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:10,845 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:14,181 - <Response [401]>
+2025-10-20 08:22:14,185 - <Response [401]>
+2025-10-20 08:22:14,190 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:14,196 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:14,215 - <Response [401]>
+2025-10-20 08:22:14,220 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:14,284 - <Response [503]>
+2025-10-20 08:22:14,285 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:14,303 - <Response [503]>
+2025-10-20 08:22:14,305 - <Response [503]>
+2025-10-20 08:22:14,313 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:14,307 - <Response [503]>
+2025-10-20 08:22:14,316 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:14,312 - <Response [401]>
+2025-10-20 08:22:14,321 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:14,312 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:14,374 - <Response [503]>
+2025-10-20 08:22:14,375 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:14,394 - <Response [401]>
+2025-10-20 08:22:14,404 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,491 - <Response [401]>
+2025-10-20 08:22:17,496 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,666 - <Response [401]>
+2025-10-20 08:22:17,671 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,687 - <Response [503]>
+2025-10-20 08:22:17,692 - <Response [401]>
+2025-10-20 08:22:17,692 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:17,698 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,779 - <Response [503]>
+2025-10-20 08:22:17,780 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:17,788 - <Response [503]>
+2025-10-20 08:22:17,788 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:17,794 - <Response [401]>
+2025-10-20 08:22:17,806 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,816 - <Response [503]>
+2025-10-20 08:22:17,817 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:17,843 - <Response [401]>
+2025-10-20 08:22:17,849 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:17,877 - <Response [503]>
+2025-10-20 08:22:17,909 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,000 - <Response [401]>
+2025-10-20 08:22:21,005 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:21,028 - <Response [503]>
+2025-10-20 08:22:21,029 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,308 - <Response [401]>
+2025-10-20 08:22:21,313 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:21,350 - <Response [401]>
+2025-10-20 08:22:21,355 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:21,435 - <Response [503]>
+2025-10-20 08:22:21,435 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,477 - <Response [503]>
+2025-10-20 08:22:21,478 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,486 - <Response [503]>
+2025-10-20 08:22:21,486 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,521 - <Response [503]>
+2025-10-20 08:22:21,523 - <Response [503]>
+2025-10-20 08:22:21,523 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,523 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:21,729 - <Response [401]>
+2025-10-20 08:22:21,737 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:24,359 - <Response [401]>
+2025-10-20 08:22:24,364 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:24,695 - <Response [401]>
+2025-10-20 08:22:24,700 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:24,778 - <Response [503]>
+2025-10-20 08:22:24,778 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:24,786 - <Response [503]>
+2025-10-20 08:22:24,788 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:24,815 - <Response [401]>
+2025-10-20 08:22:24,819 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:24,855 - <Response [401]>
+2025-10-20 08:22:24,860 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:24,898 - <Response [503]>
+2025-10-20 08:22:24,899 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:24,902 - <Response [503]>
+2025-10-20 08:22:24,902 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:24,918 - <Response [503]>
+2025-10-20 08:22:24,918 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:25,009 - <Response [503]>
+2025-10-20 08:22:25,010 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:27,294 - <Response [401]>
+2025-10-20 08:22:27,299 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,076 - <Response [401]>
+2025-10-20 08:22:28,082 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,128 - <Response [503]>
+2025-10-20 08:22:28,133 - <Response [401]>
+2025-10-20 08:22:28,133 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:28,138 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,207 - <Response [401]>
+2025-10-20 08:22:28,209 - <Response [503]>
+2025-10-20 08:22:28,215 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,215 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:28,348 - <Response [401]>
+2025-10-20 08:22:28,353 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,398 - <Response [401]>
+2025-10-20 08:22:28,403 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,464 - <Response [401]>
+2025-10-20 08:22:28,470 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:28,576 - <Response [503]>
+2025-10-20 08:22:28,576 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:30,358 - <Response [401]>
+2025-10-20 08:22:30,363 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,414 - <Response [401]>
+2025-10-20 08:22:31,419 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,511 - <Response [401]>
+2025-10-20 08:22:31,516 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,564 - <Response [401]>
+2025-10-20 08:22:31,569 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,573 - <Response [503]>
+2025-10-20 08:22:31,575 - <Response [503]>
+2025-10-20 08:22:31,576 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:31,577 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:31,600 - <Response [401]>
+2025-10-20 08:22:31,605 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,862 - <Response [401]>
+2025-10-20 08:22:31,867 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:31,979 - <Response [503]>
+2025-10-20 08:22:31,979 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:32,086 - <Response [503]>
+2025-10-20 08:22:32,087 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:33,736 - <Response [401]>
+2025-10-20 08:22:33,742 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:34,767 - <Response [401]>
+2025-10-20 08:22:34,772 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:34,775 - <Response [503]>
+2025-10-20 08:22:34,775 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:34,783 - <Response [401]>
+2025-10-20 08:22:34,793 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:34,955 - <Response [503]>
+2025-10-20 08:22:34,955 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:35,120 - <Response [503]>
+2025-10-20 08:22:35,120 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:35,143 - <Response [503]>
+2025-10-20 08:22:35,143 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:35,155 - <Response [503]>
+2025-10-20 08:22:35,155 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:35,241 - <Response [503]>
+2025-10-20 08:22:35,241 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:35,326 - <Response [401]>
+2025-10-20 08:22:35,332 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:37,004 - <Response [401]>
+2025-10-20 08:22:37,009 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,068 - <Response [401]>
+2025-10-20 08:22:38,073 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,250 - <Response [401]>
+2025-10-20 08:22:38,255 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,266 - <Response [401]>
+2025-10-20 08:22:38,271 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,525 - <Response [401]>
+2025-10-20 08:22:38,527 - <Response [401]>
+2025-10-20 08:22:38,532 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,537 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:38,539 - <Response [503]>
+2025-10-20 08:22:38,540 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:38,662 - <Response [503]>
+2025-10-20 08:22:38,663 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:38,715 - <Response [401]>
+2025-10-20 08:22:38,720 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:39,015 - <Response [503]>
+2025-10-20 08:22:39,015 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:40,408 - <Response [401]>
+2025-10-20 08:22:40,413 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,071 - <Response [503]>
+2025-10-20 08:22:41,071 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:41,211 - <Response [401]>
+2025-10-20 08:22:41,216 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,352 - <Response [401]>
+2025-10-20 08:22:41,357 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,551 - <Response [503]>
+2025-10-20 08:22:41,551 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:41,657 - <Response [401]>
+2025-10-20 08:22:41,662 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,696 - <Response [401]>
+2025-10-20 08:22:41,701 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,792 - <Response [401]>
+2025-10-20 08:22:41,797 - Get Quotes response : {'Status': 5, 'Error': 'Authentication Fail :: Invalid Checksum.'}
+2025-10-20 08:22:41,816 - <Response [503]>
+2025-10-20 08:22:41,816 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
+2025-10-20 08:22:41,861 - <Response [503]>
+2025-10-20 08:22:41,861 - Exception in get_quotes : Expecting value: line 1 column 1 (char 0)
