@@ -1,4 +1,4 @@
-git+https://github.com/Idirect-Tech/Breeze-Python-SDK.git
-flask==3.1.2
-psycopg2-binary
-requests
+fastapi==0.115.0
+uvicorn==0.30.1
+requests==2.32.3
+fyers-apiv3==3.1.0
