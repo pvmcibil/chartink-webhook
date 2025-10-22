@@ -2,246 +2,229 @@ import os
 import json
 import threading
 import time
-import requests
+import logging
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fyers_apiv3 import fyersModel
+import requests
+import hashlib
 
-# ==========================
-# 🔧 ENVIRONMENT VARIABLES
-# ==========================
+# ---------------------- LOGGING CONFIG ----------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
+# ---------------------- FASTAPI APP ----------------------
+app = FastAPI(title="Chartink Fyers Webhook")
+
+# ---------------------- ENV VARIABLES ----------------------
 CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 CLIENT_SECRET = os.getenv("FYERS_CLIENT_SECRET")
-REDIRECT_URI = os.getenv("FYERS_REDIRECT_URI")
 REFRESH_TOKEN = os.getenv("FYERS_REFRESH_TOKEN")
-TOKEN_FILE = os.getenv("FYERS_ACCESS_TOKEN")
+ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+
+LOW_PRICE_LIMIT = float(os.getenv("LOW_PRICE_LIMIT", 200))
+MID_PRICE_LIMIT = float(os.getenv("MID_PRICE_LIMIT", 600))
+LOW_QTY = int(os.getenv("LOW_QTY", 10))
+HIGH_QTY = int(os.getenv("HIGH_QTY", 5))
+
+TARGET_PCT = 0.05
+STOPLOSS_PCT = 0.01
+
 POSITIONS_FILE = "open_positions.json"
 
-# ==========================
-# ⚙️ HELPER FUNCTIONS
-# ==========================
+# ---------------------- GLOBALS ----------------------
+fyers = None
+open_positions = {}
 
-def get_access_token():
-    """Load access token from file"""
-    if os.path.exists(TOKEN_FILE):
-        try:
-            with open(TOKEN_FILE, "r") as f:
-                token_data = json.load(f)
-                return token_data.get("access_token")
-        except Exception as e:
-            print(f"⚠️ Token read error: {e}")
-    return None
-
-
-def save_access_token(token):
-    """Save access token locally"""
-    with open(TOKEN_FILE, "w") as f:
-        json.dump({"access_token": token}, f)
-
-
-def refresh_access_token():
-    """Refresh Fyers access token using refresh token"""
-    print("🔄 Refreshing access token...")
-    try:
-        url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
-        payload = {
-            "grant_type": "refresh_token",
-            "appId": CLIENT_ID,
-            "secret_key": CLIENT_SECRET,
-            "refresh_token": REFRESH_TOKEN
-        }
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            access_token = data.get("access_token")
-            if access_token:
-                save_access_token(access_token)
-                print("✅ Token refreshed successfully")
-                return access_token
-        print(f"❌ Token refresh failed: {response.text}")
-    except Exception as e:
-        print(f"⚠️ Token refresh error: {e}")
-    return None
-
+# ---------------------- HELPERS ----------------------
 def load_positions():
-    """Load open positions from JSON file"""
+    """Load existing open positions from file"""
     if os.path.exists(POSITIONS_FILE):
         try:
             with open(POSITIONS_FILE, "r") as f:
                 return json.load(f)
-        except Exception:
-            return []
-    return []
-
+        except Exception as e:
+            logging.error(f"Error loading positions file: {e}")
+    return {}
 
 def save_positions():
-    """Persist open positions to disk"""
-    with open(POSITIONS_FILE, "w") as f:
-        json.dump(open_positions, f, indent=2)
-
-
-# ==========================
-# ⚙️ INITIALIZE FYERS
-# ==========================
-access_token = get_access_token() or refresh_access_token()
-
-if not access_token:
-    print("⚠️ Missing refresh_token. Please reauthenticate.")
-
-fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=access_token, log_path="")
-
-# ==========================
-# ⚙️ FASTAPI SETUP
-# ==========================
-app = FastAPI()
-
-# ==========================
-# 📦 POSITION MEMORY
-# ==========================
-open_positions = load_positions()
-
-# ==========================
-# 📊 DYNAMIC QUANTITY LOGIC
-# ==========================
-def get_quantity(price):
-    if price < 200:
-        return 10
-    elif price < 600:
-        return 10
-    else:
-        return 5
-
-
-# ==========================
-# 🔧 FYERS UTILITIES
-# ==========================
-def get_ltp(symbol):
-    """Fetch LTP from Fyers"""
+    """Save open positions to file"""
     try:
-        data = fyers.quotes({"symbols": symbol})
-        return float(data["d"][0]["v"]["lp"])
+        with open(POSITIONS_FILE, "w") as f:
+            json.dump(open_positions, f, indent=2)
     except Exception as e:
-        print(f"⚠️ LTP fetch error for {symbol}: {e}")
-        return 0.0
+        logging.error(f"Error saving positions: {e}")
 
+# ---------------------- TOKEN REFRESH ----------------------
+def refresh_access_token():
+    """Refresh access token using refresh_token"""
+    global ACCESS_TOKEN, fyers
+
+    if not REFRESH_TOKEN or not CLIENT_ID or not CLIENT_SECRET:
+        logging.error("⚠️ Missing Fyers credentials. Check your environment variables.")
+        return None
+
+    logging.info("🔄 Refreshing access token...")
+
+    try:
+        # Generate sha256 hash of appId:appSecret as per new Fyers API rule
+        app_hash = hashlib.sha256(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).hexdigest()
+
+        url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
+        payload = {
+            "grant_type": "refresh_token",
+            "appIdHash": app_hash,
+            "refresh_token": REFRESH_TOKEN
+        }
+
+        response = requests.post(url, json=payload, timeout=10)
+        data = response.json()
+
+        if "access_token" in data:
+            ACCESS_TOKEN = data["access_token"]
+            fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=ACCESS_TOKEN, log_path="")
+            logging.info("✅ Access token refreshed successfully.")
+            return ACCESS_TOKEN
+        else:
+            logging.error(f"❌ Token refresh failed: {data}")
+            return None
+    except Exception as e:
+        logging.error(f"Error refreshing access token: {e}")
+        return None
+
+# ---------------------- FYERS INIT ----------------------
+def init_fyers():
+    global fyers
+    if not ACCESS_TOKEN:
+        refresh_access_token()
+    else:
+        fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=ACCESS_TOKEN, log_path="")
+        logging.info("✅ Fyers initialized with provided access token.")
+
+# ---------------------- ORDER LOGIC ----------------------
+def get_quantity(price: float) -> int:
+    if price <= LOW_PRICE_LIMIT:
+        return LOW_QTY
+    elif price <= MID_PRICE_LIMIT:
+        return 10
+    return HIGH_QTY
 
 def safe_place_order(order):
-    """Place order safely with retry on token expiry"""
-    global fyers, access_token
+    """Wrapper for placing order safely"""
     try:
         resp = fyers.place_order(order)
-        if resp.get("s") == "ok":
-            print(f"✅ Order placed: {resp}")
-            return True
-        elif "Invalid token" in str(resp):
-            print("⚠️ Token expired. Refreshing...")
-            access_token = refresh_access_token()
-            if access_token:
-                fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=access_token, log_path="")
-                resp = fyers.place_order(order)
-                if resp.get("s") == "ok":
-                    print(f"✅ Order placed after refresh: {resp}")
-                    return True
-        print(f"❌ Order failed: {resp}")
+        logging.info(f"📦 Order response: {resp}")
+        return resp
     except Exception as e:
-        print(f"⚠️ Order exception: {e}")
-    return False
+        logging.error(f"Order placement error: {e}")
+        return {}
 
-
-# ==========================
-# 🛒 PLACE ORDER
-# ==========================
-def place_order(symbol, price, side=1):
+def place_order(symbol: str, price: float, side: int = 1):
+    """Place BUY or SELL Market Order"""
     qty = get_quantity(price)
+    symbol_code = f"NSE:{symbol}-EQ"
+
     order = {
-        "symbol": symbol,
+        "symbol": symbol_code,
         "qty": qty,
-        "type": 2,           # Market Order
-        "side": side,        # 1=BUY, -1=SELL
+        "type": 2,             # Market Order
+        "side": side,          # 1=BUY, -1=SELL
         "productType": "INTRADAY",
         "limitPrice": 0,
         "validity": "DAY",
         "offlineOrder": False
     }
-    return safe_place_order(order)
 
+    logging.info(f"📈 Placing {'BUY' if side==1 else 'SELL'} Market Order for {symbol} | Qty: {qty}")
+    resp = safe_place_order(order)
 
-# ==========================
-# 🎯 EXIT MONITOR
-# ==========================
+    # If BUY, track position for exit
+    if side == 1 and "id" in resp:
+        open_positions[symbol] = {
+            "entry_price": price,
+            "qty": qty,
+            "timestamp": datetime.now().isoformat()
+        }
+        save_positions()
+
+    # If SELL, remove from open positions
+    elif side == -1:
+        open_positions.pop(symbol, None)
+        save_positions()
+
+    return resp
+
+# ---------------------- EXIT STRATEGY ----------------------
 def exit_monitor():
-    print("🚀 Exit monitor thread started.")
-    global open_positions
+    """Auto exit positions when target/SL is hit"""
     while True:
         try:
-            time.sleep(10)
-            for pos in open_positions[:]:
-                symbol = pos["symbol"]
-                buy_price = pos["buy_price"]
-                target = pos["target"]
-                stop = pos["stop"]
+            if not open_positions:
+                time.sleep(10)
+                continue
 
-                ltp = get_ltp(symbol)
+            for symbol, pos in list(open_positions.items()):
+                entry = pos["entry_price"]
+                qty = pos["qty"]
+                symbol_code = f"NSE:{symbol}-EQ"
+                quote = fyers.quotes({"symbols": symbol_code})
+                ltp = quote.get("d", [{}])[0].get("v", {}).get("lp")
+
                 if not ltp:
                     continue
 
+                target = entry * (1 + TARGET_PCT)
+                stop = entry * (1 - STOPLOSS_PCT)
+
                 if ltp >= target or ltp <= stop:
-                    print(f"💰 Exit condition met for {symbol}: LTP={ltp}")
-                    success = place_order(symbol, ltp, side=-1)
-                    if success:
-                        print(f"✅ Square-off successful for {symbol} at ₹{ltp}")
-                        open_positions.remove(pos)
-                        save_positions()
+                    logging.info(f"💰 {symbol}: Exit triggered @ {ltp} (Target: {target:.2f}, Stop: {stop:.2f})")
+                    place_order(symbol, ltp, side=-1)
+
+            time.sleep(15)
+
         except Exception as e:
-            print(f"⚠️ Exit monitor error: {e}")
-            time.sleep(5)
+            logging.error(f"Exit monitor error: {e}")
+            time.sleep(15)
 
-
-# Start background thread
-threading.Thread(target=exit_monitor, daemon=True).start()
-
-# ==========================
-# 📩 WEBHOOK ENDPOINT
-# ==========================
-@app.post("/webhook")
-async def webhook(request: Request):
+# ---------------------- WEBHOOK ----------------------
+@app.post("/chartink")
+async def chartink_alert(request: Request):
+    """Receive Chartink webhook alert"""
     try:
         data = await request.json()
-        stocks = data.get("stocks")
-        trigger_prices = data.get("trigger_prices")
+        logging.info(f"📩 Received alert: {data}")
 
+        stocks = data.get("stocks", "")
+        trigger_prices = data.get("trigger_prices", "")
         if not stocks:
-            return {"error": "No stocks received"}
+            return {"status": "error", "message": "No stocks found"}
 
-        symbols = [s.strip() for s in stocks.split(",")]
-        prices = [float(p.strip()) for p in trigger_prices.split(",")] if trigger_prices else [0.0] * len(symbols)
+        stock_list = [s.strip() for s in stocks.split(",")]
+        price_list = [float(p.strip()) for p in trigger_prices.split(",") if p.strip()]
 
-        results = []
-        for i, symbol in enumerate(symbols):
-            price = prices[i] if i < len(prices) else 0.0
-            qty = get_quantity(price)
-            print(f"🚀 Buy signal received: {symbol} @ ₹{price} (qty={qty})")
+        for idx, symbol in enumerate(stock_list):
+            price = price_list[idx] if idx < len(price_list) else None
+            if price:
+                threading.Thread(target=place_order, args=(symbol, price, 1)).start()
 
-            if place_order(symbol, price, side=1):
-                target = round(price * 1.05, 2)
-                stop = round(price * 0.99, 2)
-                open_positions.append({"symbol": symbol, "buy_price": price, "target": target, "stop": stop})
-                save_positions()
-                results.append({"symbol": symbol, "status": "Order placed"})
-            else:
-                results.append({"symbol": symbol, "status": "Order failed"})
-
-        return {"result": results}
+        return {"status": "success", "received": data}
 
     except Exception as e:
-        print(f"⚠️ Webhook error: {e}")
-        return {"error": str(e)}
+        logging.error(f"Error processing alert: {e}")
+        return {"status": "error", "message": str(e)}
 
+# ---------------------- STARTUP ----------------------
+@app.on_event("startup")
+def startup_event():
+    global open_positions
+    logging.info("🚀 Starting Chartink Webhook Service...")
+    open_positions = load_positions()
+    init_fyers()
+    threading.Thread(target=exit_monitor, daemon=True).start()
+    logging.info("🚀 Exit monitor started.")
 
-# ==========================
-# 🚀 STARTUP LOG
-# ==========================
-print("🚀 Starting Chartink Webhook Service...")
-if not access_token:
-    print("❌ No access token found.")
-else:
-    print("✅ Service ready to receive Chartink alerts.")
+@app.get("/")
+def home():
+    return {"status": "running", "time": datetime.now().isoformat()}
