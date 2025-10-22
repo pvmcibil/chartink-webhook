@@ -41,27 +41,37 @@ def save_access_token(token):
 def refresh_access_token():
     """Refresh Fyers access token using refresh token"""
     print("🔄 Refreshing access token...")
+
     try:
         url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
+
+        # Load from environment (Render variables)
+        client_id = os.getenv("FYERS_CLIENT_ID")
+        client_secret = os.getenv("FYERS_CLIENT_SECRET")
+        refresh_token = os.getenv("FYERS_REFRESH_TOKEN")
+
+        # Create hash: sha256("client_id:client_secret")
+        appIdHash = hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
+
         payload = {
             "grant_type": "refresh_token",
-            "appId": CLIENT_ID,
-            "secret_key": CLIENT_SECRET,
-            "refresh_token": REFRESH_TOKEN
+            "appIdHash": appIdHash,
+            "refresh_token": refresh_token
         }
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            access_token = data.get("access_token")
-            if access_token:
-                save_access_token(access_token)
-                print("✅ Token refreshed successfully")
-                return access_token
-        print(f"❌ Token refresh failed: {response.text}")
-    except Exception as e:
-        print(f"⚠️ Token refresh error: {e}")
-    return None
 
+        resp = requests.post(url, json=payload)
+        data = resp.json()
+
+        if "access_token" in data:
+            print("✅ Access token refreshed successfully.")
+            return data["access_token"]
+        else:
+            print(f"❌ Token refresh failed: {data}")
+            return None
+
+    except Exception as e:
+        print(f"❌ Error refreshing access token: {e}")
+        return None
 
 def load_positions():
     """Load open positions from JSON file"""
