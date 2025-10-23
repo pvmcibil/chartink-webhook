@@ -76,7 +76,8 @@ def refresh_access_token():
         payload = {
             "grant_type": "refresh_token",
             "appIdHash": app_hash,
-            "refresh_token": REFRESH_TOKEN
+            "refresh_token": REFRESH_TOKEN,
+            "pin": os.getenv("FYERS_PIN")
         }
 
         response = requests.post(url, json=payload, timeout=10)
