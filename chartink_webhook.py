@@ -112,11 +112,23 @@ def get_quantity(price: float) -> int:
     return HIGH_QTY
 
 def safe_place_order(order):
-    """Wrapper for placing order safely"""
+    """Wrapper for placing order safely with auto token refresh"""
+    global fyers
+
     try:
         resp = fyers.place_order(order)
+
+        # if authentication fails, refresh token and retry once
+        if isinstance(resp, dict) and resp.get("code") == -16:
+            logging.warning("⚠️ Authentication failed. Refreshing token and retrying...")
+            refresh_access_token()
+            time.sleep(2)
+            fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=ACCESS_TOKEN, log_path="")
+            resp = fyers.place_order(order)
+
         logging.info(f"📦 Order response: {resp}")
         return resp
+
     except Exception as e:
         logging.error(f"Order placement error: {e}")
         return {}
