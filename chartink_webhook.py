@@ -118,7 +118,7 @@ def safe_place_order(order):
     try:
         if TRADE_MODE != "REAL":
             logging.info(f"🧪 TEST MODE: Order not sent to Fyers → {order}")
-            return {"id": "TEST_ORDER", "status": "simulated"}
+            return {"id": "TEST_ORDER", "status": "simulated", "s": "ok"}
 
         resp = fyers.place_order(order)
         if isinstance(resp, dict) and resp.get("code") == -16:
@@ -136,6 +136,11 @@ def safe_place_order(order):
         return {}
 
 def place_order(symbol: str, price: float, side: int = 1):
+    # 🕒 Prevent real orders during closed market hours
+    if TRADE_MODE == "REAL" and not is_market_hours():
+        logging.warning(f"🕒 Market closed — skipping real order for {symbol}.")
+        return {"status": "skipped", "reason": "market_closed"}
+
     qty = get_quantity(price)
     symbol_code = f"NSE:{symbol}-EQ"
 
@@ -153,17 +158,22 @@ def place_order(symbol: str, price: float, side: int = 1):
     logging.info(f"📈 {'BUY' if side == 1 else 'SELL'} {symbol} @ {price} | Qty: {qty} | Mode: {TRADE_MODE}")
     resp = safe_place_order(order)
 
-    if side == 1:
+    # ✅ Only save BUYs if successful
+    if side == 1 and isinstance(resp, dict) and resp.get("s") == "ok":
         open_positions[symbol] = {
             "entry_price": price,
             "qty": qty,
             "timestamp": datetime.now().isoformat()
         }
         save_positions()
+        logging.info(f"✅ Added {symbol} to open_positions.")
+    elif side == 1:
+        logging.warning(f"⚠️ {symbol}: Order not successful, not adding to open_positions. Response: {resp}")
 
     elif side == -1:
         open_positions.pop(symbol, None)
         save_positions()
+        logging.info(f"🧾 Removed {symbol} from open_positions.")
 
     return resp
 
