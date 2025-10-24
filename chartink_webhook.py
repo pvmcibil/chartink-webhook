@@ -3,7 +3,7 @@ import json
 import threading
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, time as dtime
 from fastapi import FastAPI, Request
 from fyers_apiv3 import fyersModel
 import requests
@@ -31,8 +31,10 @@ HIGH_QTY = int(os.getenv("HIGH_QTY", 5))
 
 TARGET_PCT = 0.05
 STOPLOSS_PCT = 0.01
-
 POSITIONS_FILE = "open_positions.json"
+
+# Trade mode control
+TRADE_MODE = os.getenv("TRADE_MODE", "TEST").upper()  # "TEST" or "REAL"
 
 # ---------------------- GLOBALS ----------------------
 fyers = None
@@ -40,7 +42,6 @@ open_positions = {}
 
 # ---------------------- HELPERS ----------------------
 def load_positions():
-    """Load existing open positions from file"""
     if os.path.exists(POSITIONS_FILE):
         try:
             with open(POSITIONS_FILE, "r") as f:
@@ -50,18 +51,20 @@ def load_positions():
     return {}
 
 def save_positions():
-    """Save open positions to file"""
     try:
         with open(POSITIONS_FILE, "w") as f:
             json.dump(open_positions, f, indent=2)
     except Exception as e:
         logging.error(f"Error saving positions: {e}")
 
+def is_market_hours():
+    """Check if current time is within NSE market hours (9:15 AM - 3:30 PM IST)."""
+    now = datetime.now().time()
+    return dtime(9, 15) <= now <= dtime(15, 30)
+
 # ---------------------- TOKEN REFRESH ----------------------
 def refresh_access_token():
-    """Refresh access token using refresh_token"""
     global ACCESS_TOKEN, fyers
-
     if not REFRESH_TOKEN or not CLIENT_ID or not CLIENT_SECRET:
         logging.error("⚠️ Missing Fyers credentials. Check your environment variables.")
         return None
@@ -69,9 +72,7 @@ def refresh_access_token():
     logging.info("🔄 Refreshing access token...")
 
     try:
-        # Generate sha256 hash of appId:appSecret as per new Fyers API rule
         app_hash = hashlib.sha256(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).hexdigest()
-
         url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
         payload = {
             "grant_type": "refresh_token",
@@ -113,15 +114,15 @@ def get_quantity(price: float) -> int:
     return HIGH_QTY
 
 def safe_place_order(order):
-    """Wrapper for placing order safely with auto token refresh"""
     global fyers
-
     try:
-        resp = fyers.place_order(order)
+        if TRADE_MODE != "REAL":
+            logging.info(f"🧪 TEST MODE: Order not sent to Fyers → {order}")
+            return {"id": "TEST_ORDER", "status": "simulated"}
 
-        # if authentication fails, refresh token and retry once
+        resp = fyers.place_order(order)
         if isinstance(resp, dict) and resp.get("code") == -16:
-            logging.warning("⚠️ Authentication failed. Refreshing token and retrying...")
+            logging.warning("⚠️ Auth failed. Refreshing token...")
             refresh_access_token()
             time.sleep(2)
             fyers = fyersModel.FyersModel(client_id=CLIENT_ID, token=ACCESS_TOKEN, log_path="")
@@ -135,26 +136,24 @@ def safe_place_order(order):
         return {}
 
 def place_order(symbol: str, price: float, side: int = 1):
-    """Place BUY or SELL Market Order"""
     qty = get_quantity(price)
     symbol_code = f"NSE:{symbol}-EQ"
 
     order = {
         "symbol": symbol_code,
         "qty": qty,
-        "type": 2,             # Market Order
-        "side": side,          # 1=BUY, -1=SELL
+        "type": 2,  # Market
+        "side": side,
         "productType": "INTRADAY",
         "limitPrice": 0,
         "validity": "DAY",
         "offlineOrder": False
     }
 
-    logging.info(f"📈 Placing {'BUY' if side==1 else 'SELL'} Market Order for {symbol} | Qty: {qty}")
+    logging.info(f"📈 {'BUY' if side == 1 else 'SELL'} {symbol} @ {price} | Qty: {qty} | Mode: {TRADE_MODE}")
     resp = safe_place_order(order)
 
-    # If BUY, track position for exit
-    if side == 1 and "id" in resp:
+    if side == 1:
         open_positions[symbol] = {
             "entry_price": price,
             "qty": qty,
@@ -162,7 +161,6 @@ def place_order(symbol: str, price: float, side: int = 1):
         }
         save_positions()
 
-    # If SELL, remove from open positions
     elif side == -1:
         open_positions.pop(symbol, None)
         save_positions()
@@ -171,11 +169,15 @@ def place_order(symbol: str, price: float, side: int = 1):
 
 # ---------------------- EXIT STRATEGY ----------------------
 def exit_monitor():
-    """Auto exit positions when target/SL is hit"""
     while True:
         try:
             if not open_positions:
                 time.sleep(10)
+                continue
+
+            if not is_market_hours():
+                logging.info("🕒 Market closed — skipping exit checks.")
+                time.sleep(60)
                 continue
 
             for symbol, pos in list(open_positions.items()):
@@ -192,8 +194,13 @@ def exit_monitor():
                 stop = entry * (1 - STOPLOSS_PCT)
 
                 if ltp >= target or ltp <= stop:
-                    logging.info(f"💰 {symbol}: Exit triggered @ {ltp} (Target: {target:.2f}, Stop: {stop:.2f})")
-                    place_order(symbol, ltp, side=-1)
+                    msg = f"💰 {symbol}: Exit triggered @ {ltp} (Target: {target:.2f}, Stop: {stop:.2f})"
+                    logging.info(msg)
+
+                    if TRADE_MODE == "REAL":
+                        place_order(symbol, ltp, side=-1)
+                    else:
+                        logging.info(f"🧪 TEST MODE: Skipping SELL order for {symbol}")
 
             time.sleep(15)
 
@@ -204,7 +211,6 @@ def exit_monitor():
 # ---------------------- WEBHOOK ----------------------
 @app.post("/chartink")
 async def chartink_alert(request: Request):
-    """Receive Chartink webhook alert"""
     try:
         data = await request.json()
         logging.info(f"📩 Received alert: {data}")
@@ -232,7 +238,7 @@ async def chartink_alert(request: Request):
 @app.on_event("startup")
 def startup_event():
     global open_positions
-    logging.info("🚀 Starting Chartink Webhook Service...")
+    logging.info(f"🚀 Starting Chartink Webhook Service... (Mode: {TRADE_MODE})")
     open_positions = load_positions()
     init_fyers()
     threading.Thread(target=exit_monitor, daemon=True).start()
@@ -240,4 +246,4 @@ def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "running", "time": datetime.now().isoformat()}
+    return {"status": "running", "mode": TRADE_MODE, "time": datetime.now().isoformat()}
