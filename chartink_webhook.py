@@ -3,7 +3,7 @@ import json
 import threading
 import time
 import logging
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta, timezone
 from fastapi import FastAPI, Request
 from fyers_apiv3 import fyersModel
 import requests
@@ -40,6 +40,22 @@ TRADE_MODE = os.getenv("TRADE_MODE", "TEST").upper()  # "TEST" or "REAL"
 fyers = None
 open_positions = {}
 
+# ---------------------- TIMEZONE ----------------------
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def is_market_hours():
+    """Check if current time is within NSE market hours (9:15 AM - 3:30 PM IST)."""
+    now_ist = datetime.now(IST).time()
+    if not (dtime(9, 15) <= now_ist <= dtime(15, 30)):
+        logging.warning(f"🕒 Market closed — current IST time: {now_ist.strftime('%H:%M:%S')}")
+        return False
+    return True
+
+def log_time_context():
+    now_utc = datetime.now(timezone.utc)
+    now_ist = datetime.now(IST)
+    logging.info(f"🕒 Time Check | UTC: {now_utc.strftime('%H:%M:%S')} | IST: {now_ist.strftime('%H:%M:%S')}")
+
 # ---------------------- HELPERS ----------------------
 def load_positions():
     if os.path.exists(POSITIONS_FILE):
@@ -56,11 +72,6 @@ def save_positions():
             json.dump(open_positions, f, indent=2)
     except Exception as e:
         logging.error(f"Error saving positions: {e}")
-
-def is_market_hours():
-    """Check if current time is within NSE market hours (9:15 AM - 3:30 PM IST)."""
-    now = datetime.now().time()
-    return dtime(9, 15) <= now <= dtime(15, 30)
 
 # ---------------------- TOKEN REFRESH ----------------------
 def refresh_access_token():
@@ -137,6 +148,7 @@ def safe_place_order(order):
 
 def place_order(symbol: str, price: float, side: int = 1):
     # 🕒 Prevent real orders during closed market hours
+    log_time_context()
     if TRADE_MODE == "REAL" and not is_market_hours():
         logging.warning(f"🕒 Market closed — skipping real order for {symbol}.")
         return {"status": "skipped", "reason": "market_closed"}
@@ -163,13 +175,12 @@ def place_order(symbol: str, price: float, side: int = 1):
         open_positions[symbol] = {
             "entry_price": price,
             "qty": qty,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(IST).isoformat()
         }
         save_positions()
         logging.info(f"✅ Added {symbol} to open_positions.")
     elif side == 1:
         logging.warning(f"⚠️ {symbol}: Order not successful, not adding to open_positions. Response: {resp}")
-
     elif side == -1:
         open_positions.pop(symbol, None)
         save_positions()
@@ -186,7 +197,6 @@ def exit_monitor():
                 continue
 
             if not is_market_hours():
-                logging.info("🕒 Market closed — skipping exit checks.")
                 time.sleep(60)
                 continue
 
@@ -256,4 +266,5 @@ def startup_event():
 
 @app.get("/")
 def home():
-    return {"status": "running", "mode": TRADE_MODE, "time": datetime.now().isoformat()}
+    now_ist = datetime.now(IST).isoformat()
+    return {"status": "running", "mode": TRADE_MODE, "time_IST": now_ist}
