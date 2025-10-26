@@ -263,14 +263,16 @@ def should_enter_trade(symbol: str, trigger_price: float) -> dict:
     if ltp is None:
         return {"ok": False, "reason": "no_ltp"}
 
-    # no late entries after 15:10
+    # no late entries after 15:10 # ✅ Timing checks
     now = now_ist().time()
     if now >= dtime(15,10):
         return {"ok": False, "reason": "post_15_10_time"}
-
+        
+    # ✅ Price tolerance check (avoid chasing breakouts)
     if ltp > trigger_price * (1 + ENTRY_TOLERANCE):
         return {"ok": False, "reason": "too_far_above_trigger", "ltp": ltp}
-
+        
+    # ✅ Optional: live volume sanity check
     candles = get_recent_15min_candles(symbol_code, count=30)
     if candles is None:
         return {"ok": False, "reason": "no_candles", "ltp": ltp}
@@ -282,10 +284,10 @@ def should_enter_trade(symbol: str, trigger_price: float) -> dict:
     avg_vol = sum([float(c["v"]) for c in candles[-20:]]) / min(20, len(candles))
     vwma = compute_vwma(candles[-20:]) if len(candles) >= 5 else None
 
-    if prev_volume < avg_vol * MIN_VOLUME_MULT:
-        return {"ok": False, "reason": "insufficient_vol_on_breakout", "prev_vol": prev_volume, "avg_vol": avg_vol, "ltp": ltp}
-    if vwma is not None and float(candles[-1]["c"]) < vwma:
-        return {"ok": False, "reason": "price_below_vwma", "vwma": vwma, "ltp": ltp}
+    #if prev_volume < avg_vol * MIN_VOLUME_MULT:
+    #    return {"ok": False, "reason": "insufficient_vol_on_breakout", "prev_vol": prev_volume, "avg_vol": avg_vol, "ltp": ltp}
+    #if vwma is not None and float(candles[-1]["c"]) < vwma:
+    #    return {"ok": False, "reason": "price_below_vwma", "vwma": vwma, "ltp": ltp}
     # don't enter if ltp is significantly above prev_high (we want retest)
     if ltp > prev_high * (1 + ENTRY_TOLERANCE):
         return {"ok": False, "reason": "ltp_above_prev_high_too_much", "ltp": ltp, "prev_high": prev_high}
