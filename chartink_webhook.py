@@ -55,6 +55,9 @@ MIN_CANDLE_BARS = int(os.getenv("MIN_CANDLE_BARS", 10))
 fyers = None
 open_positions = {}   # persisted to POSITIONS_FILE for safety
 trade_log = []        # in-memory list of trade records (dicts) used to generate Excel/email
+# ---------------------- DUPLICATE ALERT PROTECTION ----------------------
+active_trades = set()              # temporary in-progress stocks
+lock = threading.Lock()            # ensures thread-safe checks
 
 # ---------------------- TIMEZONE ----------------------
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -611,19 +614,55 @@ async def chartink_alert(request: Request):
         return {"status": "error", "message": str(e)}
 
 def secure_place_thread(symbol, price):
-    """Delay a bit and call place_order (this wrapper enforces the 15:10 cutoff)."""
+    """Delay a bit and call place_order safely (handles duplicates & 15:10 cutoff)."""
     try:
         time.sleep(0.3)
-        # If current IST time >= 15:10, skip new entries
-        if now_ist().time() >= dtime(15,10):
+
+        # Skip post-15:10 new entries
+        if now_ist().time() >= dtime(15, 10):
             logging.warning(f"⏸ Skipping {symbol} from webhook — post 15:10 IST.")
-            rec = {"timestamp": now_ist().isoformat(), "symbol": symbol, "action": "BUY_SKIPPED_POST_15_10", "price": price, "qty": 0, "status": "skipped_late"}
+            rec = {
+                "timestamp": now_ist().isoformat(),
+                "symbol": symbol,
+                "action": "BUY_SKIPPED_POST_15_10",
+                "price": price,
+                "qty": 0,
+                "status": "skipped_late"
+            }
             log_trade_memory(rec)
             return {"status": "skipped", "reason": "post_15_10"}
-        return place_order(symbol, price, side=1)
+
+        # ✅ Duplicate guard
+        with lock:
+            if symbol in active_trades or symbol in open_positions:
+                logging.warning(f"⛔ Duplicate alert ignored for {symbol} — already processing/open.")
+                record = {
+                    "timestamp": now_ist().isoformat(),
+                    "symbol": symbol,
+                    "action": "BUY_SKIPPED_DUPLICATE",
+                    "price": price,
+                    "qty": 0,
+                    "status": "duplicate_skipped"
+                }
+                log_trade_memory(record)
+                return {"status": "skipped", "reason": "duplicate"}
+
+            # Mark this symbol as active (in-progress)
+            active_trades.add(symbol)
+
+        # proceed with order placement
+        resp = place_order(symbol, price, side=1)
+        return resp
+
     except Exception as e:
         logging.error(f"secure_place_thread error for {symbol}: {e}")
         return {"status": "error", "error": str(e)}
+
+    finally:
+        # always remove from active set at the end (safe cleanup)
+        with lock:
+            active_trades.discard(symbol)
+
 
 # ---------------------- STARTUP ----------------------
 @app.on_event("startup")
