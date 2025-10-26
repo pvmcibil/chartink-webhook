@@ -13,6 +13,11 @@ import smtplib
 from email.message import EmailMessage
 from io import BytesIO
 
+# --------------- Test Environment Override true/false ------------------------------- 
+def is_test_time_override():
+    """Allow time-based restrictions to be bypassed for testing."""
+    return os.getenv("FORCE_TEST_TIME", "false").lower() == "true"
+
 # ---------------------- LOGGING CONFIG ----------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -268,7 +273,7 @@ def should_enter_trade(symbol: str, trigger_price: float) -> dict:
 
     # no late entries after 15:10 # ✅ Timing checks
     now = now_ist().time()
-    if now >= dtime(15,10):
+    if not is_test_time_override() and now >= dtime(15,10):
         return {"ok": False, "reason": "post_15_10_time"}
         
     # ✅ Price tolerance check (avoid chasing breakouts)
