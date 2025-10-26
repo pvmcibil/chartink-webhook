@@ -14,9 +14,9 @@ from email.message import EmailMessage
 from io import BytesIO
 
 # --------------- Test Environment Override true/false ------------------------------- 
-def is_test_time_override():
-    """Allow time-based restrictions to be bypassed for testing."""
-    return os.getenv("FORCE_TEST_TIME", "false").lower() == "true"
+#def is_test_time_override():
+#    """Allow time-based restrictions to be bypassed for testing."""
+#    return os.getenv("FORCE_TEST_TIME", "false").lower() == "true"
 
 # ---------------------- LOGGING CONFIG ----------------------
 logging.basicConfig(
@@ -60,6 +60,7 @@ MIN_CANDLE_BARS = int(os.getenv("MIN_CANDLE_BARS", 10))
 fyers = None
 open_positions = {}   # persisted to POSITIONS_FILE for safety
 trade_log = []        # in-memory list of trade records (dicts) used to generate Excel/email
+
 # ---------------------- DUPLICATE ALERT PROTECTION ----------------------
 active_trades = set()              # temporary in-progress stocks
 lock = threading.Lock()            # ensures thread-safe checks
@@ -273,7 +274,7 @@ def should_enter_trade(symbol: str, trigger_price: float) -> dict:
 
     # no late entries after 15:10 # ✅ Timing checks
     now = now_ist().time()
-    if not is_test_time_override() and now >= dtime(15,10):
+    if now >= dtime(15,10):
         return {"ok": False, "reason": "post_15_10_time"}
         
     # ✅ Price tolerance check (avoid chasing breakouts)
