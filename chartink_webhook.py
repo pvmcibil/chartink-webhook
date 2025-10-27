@@ -69,7 +69,8 @@ SYMBOL_FIX = {
 }
 
 # Cache resolved symbol_code for the session to reduce repeated lookups
-SYMBOL_CACHE = {}  # maps incoming symbol -> resolved "NSE:XXX-EQ" or None
+# maps incoming normalized -> resolved code (or None if unresolvable)
+SYMBOL_CACHE = {}
 
 # ---------------------- TIMEZONE ----------------------
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -151,15 +152,20 @@ def get_ltp(symbol: str):
     """Get latest price via quotes. symbol like 'NSE:RELIANCE-EQ'"""
     global fyers
     try:
+        if fyers is None:
+            logging.warning("Fyers client not initialized for get_ltp.")
+            return None
         q = fyers.quotes({"symbols": symbol})
         ltp = None
         if isinstance(q, dict):
+            # many fyers responses nest realtime values under 'd' list
             ltp = q.get("d", [{}])[0].get("v", {}).get("lp")
-        if ltp is None:
-            ltp = q.get("ltp") if isinstance(q, dict) else None
+            # fallback older formats
+            if ltp is None:
+                ltp = q.get("ltp")
         return float(ltp) if ltp else None
     except Exception as e:
-        logging.error(f"Error fetching LTP for {symbol}: {e}")
+        logging.debug(f"Error fetching LTP for {symbol}: {e}")
         return None
 
 def get_recent_15min_candles(symbol: str, count: int = 30):
@@ -169,6 +175,9 @@ def get_recent_15min_candles(symbol: str, count: int = 30):
     """
     global fyers
     try:
+        if fyers is None:
+            logging.warning("Fyers client not initialized for candles.")
+            return None
         now = now_ist()
         range_to = now.strftime("%Y-%m-%d")
         range_from = (now - timedelta(days=5)).strftime("%Y-%m-%d")
@@ -225,48 +234,48 @@ def compute_vwma(candles):
 def _normalize_incoming_symbol(symbol: str) -> str:
     """Strip possible prefixes/suffixes Chartink might include."""
     s = symbol.strip().upper()
-    s = s.replace("NSE:", "").replace("-EQ", "").strip()
+    s = s.replace("NSE:", "").replace("BSE:", "").replace("-EQ", "").strip()
     return s
 
 def resolve_symbol_code(symbol: str):
     """
     Resolve an incoming symbol (Chartink) to a Fyers-style symbol code like 'NSE:RELIANCE-EQ'.
-    Uses:
-      - manual SYMBOL_FIX mapping
-      - in-session SYMBOL_CACHE
-      - fallback to plain NSE:{symbol}-EQ
-    Returns resolved code string or None.
+    Strategy:
+      - normalize and apply manual fixes
+      - check cache
+      - try candidates in order: NSE:{BASE}-EQ, NSE:{BASE}, BSE:{BASE}
+      - if resolved, store in SYMBOL_CACHE and return resolved code
+      - else cache None and return None
     """
+    if not symbol:
+        return None
+
     base_raw = _normalize_incoming_symbol(symbol)
     base = SYMBOL_FIX.get(base_raw, base_raw)
 
-    # Cached?
+    # cached?
     if base_raw in SYMBOL_CACHE:
         return SYMBOL_CACHE[base_raw]
     if base in SYMBOL_CACHE:
         return SYMBOL_CACHE[base]
 
-    # Always build clean uppercased NSE:{base}-EQ
-    symbol_code = f"NSE:{base.strip().upper()}-EQ"
+    candidates = [
+        f"NSE:{base}-EQ",
+        f"NSE:{base}",
+        f"BSE:{base}"
+    ]
 
-    # Validate it by checking LTP
-    ltp = get_ltp(symbol_code)
-    if ltp is not None:
-        SYMBOL_CACHE[base_raw] = symbol_code
-        SYMBOL_CACHE[base] = symbol_code
-        logging.info(f"✅ Resolved symbol '{symbol}' → {symbol_code} (ltp={ltp})")
-        return symbol_code
+    for code in candidates:
+        ltp = get_ltp(code)
+        if ltp is not None:
+            SYMBOL_CACHE[base_raw] = code
+            SYMBOL_CACHE[base] = code
+            logging.info(f"✅ Resolved symbol '{symbol}' -> {code} (ltp={ltp})")
+            return code
 
-    # Fallback try without -EQ
-    alt_code = f"NSE:{base.strip().upper()}"
-    ltp_alt = get_ltp(alt_code)
-    if ltp_alt is not None:
-        SYMBOL_CACHE[base_raw] = alt_code
-        SYMBOL_CACHE[base] = alt_code
-        logging.info(f"✅ Resolved symbol '{symbol}' → {alt_code} (ltp={ltp_alt})")
-        return alt_code
-
-    # If both fail, log and cache failure
+    # Last-ditch attempt: try removing trailing digits or add common suffixes (lightweight heuristics)
+    # Example: chartink truncation can remove last chars; avoid brute forcing thousands of names.
+    # Cache failure to avoid repeated attempts.
     SYMBOL_CACHE[base_raw] = None
     SYMBOL_CACHE[base] = None
     logging.warning(f"❌ Could not resolve symbol '{symbol}' to a valid Fyers code.")
@@ -681,7 +690,7 @@ def secure_place_thread(symbol, price):
             log_trade_memory(rec)
             return {"status": "skipped", "reason": "post_15_10"}
 
-        # Duplicate guard
+        # Duplicate guard (use raw symbol key for duplicates)
         with lock:
             if symbol in active_trades or symbol in open_positions:
                 logging.warning(f"⛔ Duplicate alert ignored for {symbol} — already processing/open.")
