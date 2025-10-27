@@ -149,25 +149,43 @@ def init_fyers():
 
 # ---------------------- MARKET DATA HELPERS ----------------------
 def get_ltp(symbol: str):
-    """Get latest price via quotes. symbol like 'NSE:RELIANCE-EQ'"""
+    """Get latest price via Fyers quotes API (v3). symbol like 'NSE:RELIANCE-EQ'"""
     global fyers
     try:
         if fyers is None:
             logging.warning("Fyers client not initialized for get_ltp.")
             return None
+
         q = fyers.quotes({"symbols": symbol})
-        ltp = None
-        if isinstance(q, dict):
-            # many fyers responses nest realtime values under 'd' list
-            ltp = q.get("d", [{}])[0].get("v", {}).get("lp")
-            # fallback older formats
-            if ltp is None:
-                ltp = q.get("ltp")
-        return float(ltp) if ltp else None
+        if not isinstance(q, dict):
+            logging.debug(f"Unexpected quotes response for {symbol}: {q}")
+            return None
+
+        # check for 's' field (success flag)
+        if q.get("s") == "error":
+            msg = q.get("message") or q.get("msg")
+            logging.debug(f"Invalid symbol {symbol}: {msg}")
+            return None
+
+        # Fyers returns list under 'd'
+        if "d" in q and isinstance(q["d"], list) and q["d"]:
+            item = q["d"][0]
+            v = item.get("v", {}) if isinstance(item, dict) else {}
+            ltp = v.get("lp") or v.get("ltp") or v.get("last_price")
+            if ltp:
+                return float(ltp)
+
+        # Fallback for old style or empty d[]
+        if "ltp" in q:
+            return float(q["ltp"])
+
+        logging.debug(f"No LTP found in quotes response for {symbol}: {q}")
+        return None
+
     except Exception as e:
         logging.debug(f"Error fetching LTP for {symbol}: {e}")
         return None
-
+        
 def get_recent_15min_candles(symbol: str, count: int = 30):
     """
     Fetch 15-min candles using fyers history/historical if available.
@@ -239,13 +257,8 @@ def _normalize_incoming_symbol(symbol: str) -> str:
 
 def resolve_symbol_code(symbol: str):
     """
-    Resolve an incoming symbol (Chartink) to a Fyers-style symbol code like 'NSE:RELIANCE-EQ'.
-    Strategy:
-      - normalize and apply manual fixes
-      - check cache
-      - try candidates in order: NSE:{BASE}-EQ, NSE:{BASE}, BSE:{BASE}
-      - if resolved, store in SYMBOL_CACHE and return resolved code
-      - else cache None and return None
+    Resolve Chartink symbol (like SBIN) to valid Fyers symbol code (like NSE:SBIN-EQ).
+    Uses multiple attempts and caching.
     """
     if not symbol:
         return None
@@ -253,11 +266,10 @@ def resolve_symbol_code(symbol: str):
     base_raw = _normalize_incoming_symbol(symbol)
     base = SYMBOL_FIX.get(base_raw, base_raw)
 
-    # cached?
-    if base_raw in SYMBOL_CACHE:
-        return SYMBOL_CACHE[base_raw]
-    if base in SYMBOL_CACHE:
-        return SYMBOL_CACHE[base]
+    # check cache
+    cached = SYMBOL_CACHE.get(base_raw) or SYMBOL_CACHE.get(base)
+    if cached is not None:
+        return cached
 
     candidates = [
         f"NSE:{base}-EQ",
@@ -270,17 +282,31 @@ def resolve_symbol_code(symbol: str):
         if ltp is not None:
             SYMBOL_CACHE[base_raw] = code
             SYMBOL_CACHE[base] = code
-            logging.info(f"✅ Resolved symbol '{symbol}' -> {code} (ltp={ltp})")
+            logging.info(f"✅ Resolved symbol '{symbol}' → {code} (ltp={ltp})")
             return code
+        else:
+            logging.debug(f"❌ Candidate invalid: {code}")
 
-    # Last-ditch attempt: try removing trailing digits or add common suffixes (lightweight heuristics)
-    # Example: chartink truncation can remove last chars; avoid brute forcing thousands of names.
-    # Cache failure to avoid repeated attempts.
+    # last-ditch: check using Fyers symbols API
+    try:
+        url = "https://api-t1.fyers.in/api/v3/symbols"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            symbols_data = resp.json()
+            if isinstance(symbols_data, list):
+                match = next((s for s in symbols_data if s.get("symbol").startswith("NSE:") and base in s.get("symbol")), None)
+                if match:
+                    resolved = match.get("symbol")
+                    SYMBOL_CACHE[base_raw] = resolved
+                    logging.info(f"✅ Resolved via /symbols lookup: {symbol} -> {resolved}")
+                    return resolved
+    except Exception as e:
+        logging.debug(f"Fyers symbols lookup failed for {symbol}: {e}")
+
     SYMBOL_CACHE[base_raw] = None
     SYMBOL_CACHE[base] = None
     logging.warning(f"❌ Could not resolve symbol '{symbol}' to a valid Fyers code.")
     return None
-
 # ---------------------- ORDER LOGIC ----------------------
 def get_quantity(price: float) -> int:
     if price <= LOW_PRICE_LIMIT:
