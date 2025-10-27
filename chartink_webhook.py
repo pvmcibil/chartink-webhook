@@ -34,8 +34,8 @@ MID_PRICE_LIMIT = float(os.getenv("MID_PRICE_LIMIT", 600))
 LOW_QTY = int(os.getenv("LOW_QTY", 10))
 HIGH_QTY = int(os.getenv("HIGH_QTY", 5))
 
-TARGET_PCT = float(os.getenv("TARGET_PCT", 0.02))    # default 5% target
-STOPLOSS_PCT = float(os.getenv("STOPLOSS_PCT", 0.01)) # default 1% SL
+TARGET_PCT = float(os.getenv("TARGET_PCT", 0.02))    # default 2% target
+STOPLOSS_PCT = float(os.getenv("STOPLOSS_PCT", 0.01)) # default 1% percent fallback SL
 POSITIONS_FILE = os.getenv("POSITIONS_FILE", "open_positions.json")
 
 # Trade mode control (unchanged)
@@ -50,6 +50,20 @@ EMAIL_TO = os.getenv("EMAIL_TO")       # recipient
 ENTRY_TOLERANCE = float(os.getenv("ENTRY_TOLERANCE", 0.02))  # 2% above breakout
 MIN_VOLUME_MULT = float(os.getenv("MIN_VOLUME_MULT", 1.5))     # min volume vs avg
 MIN_CANDLE_BARS = int(os.getenv("MIN_CANDLE_BARS", 10))
+
+# ---------------------- NEW: POSITION / STOP CONFIG (added — you can set these in Render) -------------
+# Per-script capital allocation (position value cap) — you asked for 20,000
+CAPITAL_PER_TRADE = float(os.getenv("CAPITAL_PER_TRADE", 20000))  # ₹20,000 default
+# Max % of CAPITAL_PER_TRADE you're willing to lose on one trade (used to compute qty)
+RISK_PCT = float(os.getenv("RISK_PCT", 0.01))  # 1% of the per-trade capital (default = ₹200)
+
+# Technical stop method config
+STOP_METHOD = os.getenv("STOP_METHOD", "ATR").upper()   # "ATR" | "SWING_LOW" | "VWMA" | "PERCENT"
+ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
+ATR_MULT = float(os.getenv("ATR_MULT", 1.5))
+SWING_LOOKBACK = int(os.getenv("SWING_LOOKBACK", 5))
+VWMA_LOOKBACK = int(os.getenv("VWMA_LOOKBACK", 20))
+# -----------------------------------------------------------------------------------------------------
 
 # ---------------------- GLOBALS ----------------------
 fyers = None
@@ -185,7 +199,7 @@ def get_ltp(symbol: str):
     except Exception as e:
         logging.debug(f"Error fetching LTP for {symbol}: {e}")
         return None
-        
+
 def get_recent_15min_candles(symbol: str, count: int = 30):
     """
     Fetch 15-min candles using fyers history/historical if available.
@@ -248,6 +262,95 @@ def compute_vwma(candles):
     except Exception:
         return None
 
+# ---------------------- TECHNICAL STOP HELPERS (NEW) ----------------------
+def compute_true_ranges(candles):
+    """Return list of true ranges for a list of candles (expects dicts with o,h,l,c)."""
+    trs = []
+    prev_close = None
+    for c in candles:
+        h = float(c["h"])
+        l = float(c["l"])
+        if prev_close is None:
+            tr = h - l
+        else:
+            tr = max(h - l, abs(h - prev_close), abs(l - prev_close))
+        trs.append(tr)
+        prev_close = float(c["c"])
+    return trs
+
+def compute_atr(candles, period=14):
+    """
+    Compute ATR using last `period` candles (candles ordered oldest->newest).
+    Returns ATR float or None.
+    """
+    if not candles or len(candles) < 2:
+        return None
+    # use last `period+1` candles to compute TRs then SMA of TRs for ATR (simple ATR)
+    use = candles[-(period+1):] if len(candles) >= period+1 else candles
+    trs = compute_true_ranges(use)
+    if not trs:
+        return None
+    # take last `period` TRs if available
+    last_trs = trs[-period:] if len(trs) >= period else trs
+    return sum(last_trs) / len(last_trs) if last_trs else None
+
+def compute_swing_low(candles, lookback=5):
+    """
+    Return the swing low (minimum low) over the previous `lookback` *closed* candles.
+    Expects candles oldest->newest and excludes the currently forming candle by default.
+    """
+    if not candles:
+        return None
+    # use previous `lookback` fully closed candles: skip last bar if it's still current
+    use = candles[:-1] if len(candles) > 1 else candles
+    use = use[-lookback:] if len(use) >= lookback else use
+    lows = [float(c["l"]) for c in use if "l" in c]
+    return min(lows) if lows else None
+
+def compute_technical_stop(entry_price: float, symbol_code: str):
+    """
+    Compute stop based on STOP_METHOD. Returns price (stop) or None.
+    For LONG trades only.
+    """
+    try:
+        candles = get_recent_15min_candles(symbol_code, count=30)
+        if not candles:
+            return None
+
+        method = STOP_METHOD
+        if method == "ATR":
+            atr = compute_atr(candles, period=ATR_PERIOD)
+            if atr:
+                # compute stop as entry - ATR * multiplier
+                stop = entry_price - (atr * ATR_MULT)
+                # minimal buffer (0.2% floor) to avoid zero distance
+                min_dist = entry_price * 0.002
+                if entry_price - stop < min_dist:
+                    stop = entry_price - min_dist
+                return round(stop, 2)
+
+        if method == "SWING_LOW":
+            swing = compute_swing_low(candles, lookback=SWING_LOOKBACK)
+            if swing:
+                buffer = entry_price * 0.002  # small buffer below swing low
+                stop = swing - buffer
+                if stop >= entry_price:
+                    stop = entry_price * (1 - STOPLOSS_PCT)
+                return round(stop, 2)
+
+        if method == "VWMA":
+            vwma = compute_vwma(candles[-VWMA_LOOKBACK:]) if len(candles) >= VWMA_LOOKBACK else compute_vwma(candles)
+            if vwma:
+                stop = min(entry_price * (1 - STOPLOSS_PCT), vwma * 0.995)  # slightly below VWMA
+                return round(stop, 2)
+
+        # fallback to percent-based stop
+        return round(entry_price * (1 - STOPLOSS_PCT), 2)
+
+    except Exception as e:
+        logging.debug(f"compute_technical_stop error for {symbol_code}: {e}")
+        return round(entry_price * (1 - STOPLOSS_PCT), 2)
+
 # ---------------------- SYMBOL RESOLUTION FUNCTIONS ----------------------
 def _normalize_incoming_symbol(symbol: str) -> str:
     """Strip possible prefixes/suffixes Chartink might include."""
@@ -307,6 +410,7 @@ def resolve_symbol_code(symbol: str):
     SYMBOL_CACHE[base] = None
     logging.warning(f"❌ Could not resolve symbol '{symbol}' to a valid Fyers code.")
     return None
+
 # ---------------------- ORDER LOGIC ----------------------
 def get_quantity(price: float) -> int:
     if price <= LOW_PRICE_LIMIT:
@@ -430,9 +534,49 @@ def place_order(symbol: str, price: float, side: int = 1):
             log_trade_memory(record)
             return {"status": "skipped", "reason": "no_symbol"}
 
-    # determine qty using current LTP if available
+    # determine qty using current LTP if available AND apply CAPITAL_PER_TRADE + technical stop sizing
     ltp = get_ltp(symbol_code)
-    qty = get_quantity(ltp if ltp else price)
+    qty = None
+    computed_tech_stop = None
+
+    if ltp:
+        try:
+            # compute technical stop using recent candles
+            tech_stop = compute_technical_stop(ltp, symbol_code)
+            # fallback to percent if technical stop not available
+            if tech_stop is None:
+                tech_stop = round(ltp * (1 - STOPLOSS_PCT), 2)
+
+            # ensure stop is below entry
+            if tech_stop >= ltp:
+                tech_stop = round(ltp * (1 - STOPLOSS_PCT), 2)
+
+            risk_per_share = ltp - tech_stop
+            # safety: don't allow zero or negative risk_per_share
+            if risk_per_share <= 0:
+                raise ValueError("Invalid risk per share computed")
+
+            max_loss = CAPITAL_PER_TRADE * RISK_PCT
+            qty_risk_based = max(1, int(max_loss / risk_per_share))
+            qty_value_based = max(1, int(CAPITAL_PER_TRADE / ltp))
+
+            # choose the safer (smaller) qty so both exposure cap and risk cap hold
+            qty = min(qty_risk_based, qty_value_based)
+            computed_tech_stop = tech_stop
+
+            logging.info(
+                f"Sizing for {symbol}: LTP={ltp:.2f}, tech_stop={tech_stop:.2f}, "
+                f"risk/share={risk_per_share:.2f}, qty_risk_based={qty_risk_based}, qty_value_based={qty_value_based}, chosen_qty={qty}"
+            )
+        except Exception as e:
+            logging.warning(f"Could not compute position size for {symbol} via technical stop: {e}. Falling back to get_quantity().")
+            qty = get_quantity(ltp if ltp else price)
+    else:
+        # ltp not available — fallback to existing rule
+        qty = get_quantity(price)
+
+    # Ensure qty at least 1
+    qty = max(1, int(qty))
 
     order = {
         "symbol": symbol_code,
@@ -462,10 +606,23 @@ def place_order(symbol: str, price: float, side: int = 1):
     }
     log_trade_memory(record)
 
-    # update open_positions for BUYs only if success
+    # update open_positions for BUYs only if success (store technical stop)
     if side == 1 and isinstance(resp, dict) and resp.get("s") == "ok":
         entry_price = ltp if ltp else price
-        open_positions[symbol] = {"entry_price": entry_price, "qty": qty, "timestamp": now_ist().isoformat()}
+        # compute or re-use technical stop; keep conservative fallback to percent
+        try:
+            tstop = computed_tech_stop if computed_tech_stop else compute_technical_stop(entry_price, symbol_code)
+        except Exception:
+            tstop = None
+        if tstop is None:
+            tstop = round(entry_price * (1 - STOPLOSS_PCT), 2)
+
+        open_positions[symbol] = {
+            "entry_price": entry_price,
+            "qty": qty,
+            "timestamp": now_ist().isoformat(),
+            "stop_price": tstop
+        }
         save_positions()
         logging.info(f"✅ Added {symbol} to open_positions: {open_positions[symbol]}")
     elif side == -1 and isinstance(resp, dict) and resp.get("s") == "ok":
@@ -600,7 +757,19 @@ def exit_monitor():
                         if ltp is None:
                             continue
                         target = entry * (1 + TARGET_PCT)
-                        stop = entry * (1 - STOPLOSS_PCT)
+
+                        # prefer stored technical stop if present
+                        stored_stop = None
+                        try:
+                            stored_stop = float(pos.get("stop_price")) if pos.get("stop_price") else None
+                        except Exception:
+                            stored_stop = None
+
+                        if stored_stop is None:
+                            stop = entry * (1 - STOPLOSS_PCT)
+                        else:
+                            stop = stored_stop
+
                         if ltp >= target or ltp <= stop:
                             logging.info(f"💰 {symbol}: Exit triggered @ {ltp} (Target: {target:.2f}, Stop: {stop:.2f})")
                             if TRADE_MODE == "REAL":
