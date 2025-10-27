@@ -13,11 +13,6 @@ import smtplib
 from email.message import EmailMessage
 from io import BytesIO
 
-# --------------- Test Environment Override true/false ------------------------------- 
-#def is_test_time_override():
-#    """Allow time-based restrictions to be bypassed for testing."""
-#    return os.getenv("FORCE_TEST_TIME", "false").lower() == "true"
-
 # ---------------------- LOGGING CONFIG ----------------------
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +59,17 @@ trade_log = []        # in-memory list of trade records (dicts) used to generate
 # ---------------------- DUPLICATE ALERT PROTECTION ----------------------
 active_trades = set()              # temporary in-progress stocks
 lock = threading.Lock()            # ensures thread-safe checks
+
+# ---------------------- SYMBOL RESOLUTION (fixes + cache) ----------------------
+# Manual fixes for common Chartink truncation / mismatches
+SYMBOL_FIX = {
+    "CIGNITITEC": "CIGNITITECH",
+    "SHREECEM": "SHREECEM",
+    # add more entries as you find "no_ltp" logs
+}
+
+# Cache resolved symbol_code for the session to reduce repeated lookups
+SYMBOL_CACHE = {}  # maps incoming symbol -> resolved "NSE:XXX-EQ" or None
 
 # ---------------------- TIMEZONE ----------------------
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -159,8 +165,7 @@ def get_ltp(symbol: str):
 def get_recent_15min_candles(symbol: str, count: int = 30):
     """
     Fetch 15-min candles using fyers history/historical if available.
-    Returns list of dicts: [{'t': ts, 'o': o, 'h': h, 'l': l, 'c': c, 'v': v}, ...]
-    If unable to fetch/parse, returns None (we'll skip trade to be safe).
+    symbol should be Fyers symbol format e.g. 'NSE:RELIANCE-EQ' or 'RELIANCE' depending on SDK.
     """
     global fyers
     try:
@@ -192,7 +197,6 @@ def get_recent_15min_candles(symbol: str, count: int = 30):
                         candles.append({"t": c[0], "o": float(c[1]), "h": float(c[2]), "l": float(c[3]), "c": float(c[4]), "v": float(c[5])})
                     elif isinstance(c, dict):
                         candles.append({"t": c.get("t"), "o": float(c.get("o")), "h": float(c.get("h")), "l": float(c.get("l")), "c": float(c.get("c")), "v": float(c.get("v"))})
-        # some SDKs might return list directly
         if not candles and isinstance(resp, list):
             for c in resp[-count:]:
                 if isinstance(c, list) and len(c) >= 6:
@@ -216,6 +220,50 @@ def compute_vwma(candles):
         return (num / den) if den else None
     except Exception:
         return None
+
+# ---------------------- SYMBOL RESOLUTION FUNCTIONS ----------------------
+def _normalize_incoming_symbol(symbol: str) -> str:
+    """Strip possible prefixes/suffixes Chartink might include."""
+    s = symbol.strip().upper()
+    s = s.replace("NSE:", "").replace("-EQ", "").strip()
+    return s
+
+def resolve_symbol_code(symbol: str):
+    """
+    Resolve an incoming symbol (Chartink) to a Fyers-style symbol code like 'NSE:RELIANCE-EQ'.
+    Uses:
+      - manual SYMBOL_FIX mapping
+      - in-session SYMBOL_CACHE
+      - tries two formats and checks LTP: 'NSE:{base}-EQ' and 'NSE:{base}'
+    Returns resolved code string or None.
+    """
+    base_raw = _normalize_incoming_symbol(symbol)
+    # apply manual fixed mapping first
+    base = SYMBOL_FIX.get(base_raw, base_raw)
+
+    # cached?
+    if base_raw in SYMBOL_CACHE:
+        return SYMBOL_CACHE[base_raw]
+    if base in SYMBOL_CACHE:
+        return SYMBOL_CACHE[base]
+
+    candidates = [f"NSE:{base}-EQ", f"NSE:{base}"]
+
+    for code in candidates:
+        ltp = get_ltp(code)
+        if ltp is not None:
+            SYMBOL_CACHE[base_raw] = code
+            SYMBOL_CACHE[base] = code
+            logging.info(f"✅ Resolved symbol '{symbol}' -> {code} (ltp={ltp})")
+            return code
+
+    # Optionally try slight transforms: if base is truncated (10 chars), try common completion heuristics
+    # e.g. Chartink truncation: try to add 'H' or 'CH' etc. This is heuristic; we keep minimal to avoid wrong matches.
+    # Save None in cache to avoid repeated attempts for same unknown symbol.
+    SYMBOL_CACHE[base_raw] = None
+    SYMBOL_CACHE[base] = None
+    logging.warning(f"❌ Could not resolve symbol '{symbol}' to a valid Fyers code.")
+    return None
 
 # ---------------------- ORDER LOGIC ----------------------
 def get_quantity(price: float) -> int:
@@ -262,26 +310,30 @@ def export_trade_log_to_excel_bytes():
 def should_enter_trade(symbol: str, trigger_price: float) -> dict:
     """
     Pre-entry checks:
+    - Resolve symbol_code
     - LTP not far above trigger (ENTRY_TOLERANCE)
     - recent 15-min candle volume vs avg
     - price not below VWMA
     Returns dict with ok flag and info.
     """
-    symbol_code = f"NSE:{symbol}-EQ"
+    symbol_code = resolve_symbol_code(symbol)
+    if symbol_code is None:
+        return {"ok": False, "reason": "no_ltp"}
+
     ltp = get_ltp(symbol_code)
     if ltp is None:
         return {"ok": False, "reason": "no_ltp"}
 
-    # no late entries after 15:10 # ✅ Timing checks
+    # no late entries after 15:10
     now = now_ist().time()
     if now >= dtime(15,10):
         return {"ok": False, "reason": "post_15_10_time"}
-        
-    # ✅ Price tolerance check (avoid chasing breakouts)
+
+    # Price tolerance check (avoid chasing breakouts)
     if ltp > trigger_price * (1 + ENTRY_TOLERANCE):
         return {"ok": False, "reason": "too_far_above_trigger", "ltp": ltp}
-        
-    # ✅ Optional: live volume sanity check
+
+    # Live volume sanity check using 15m candles
     candles = get_recent_15min_candles(symbol_code, count=30)
     if candles is None:
         return {"ok": False, "reason": "no_candles", "ltp": ltp}
@@ -293,15 +345,11 @@ def should_enter_trade(symbol: str, trigger_price: float) -> dict:
     avg_vol = sum([float(c["v"]) for c in candles[-20:]]) / min(20, len(candles))
     vwma = compute_vwma(candles[-20:]) if len(candles) >= 5 else None
 
-    #if prev_volume < avg_vol * MIN_VOLUME_MULT:
-    #    return {"ok": False, "reason": "insufficient_vol_on_breakout", "prev_vol": prev_volume, "avg_vol": avg_vol, "ltp": ltp}
-    #if vwma is not None and float(candles[-1]["c"]) < vwma:
-    #    return {"ok": False, "reason": "price_below_vwma", "vwma": vwma, "ltp": ltp}
     # don't enter if ltp is significantly above prev_high (we want retest)
     if ltp > prev_high * (1 + ENTRY_TOLERANCE):
         return {"ok": False, "reason": "ltp_above_prev_high_too_much", "ltp": ltp, "prev_high": prev_high}
 
-    return {"ok": True, "reason": "checks_passed", "ltp": ltp, "prev_high": prev_high, "avg_vol": avg_vol, "vwma": vwma}
+    return {"ok": True, "reason": "checks_passed", "ltp": ltp, "prev_high": prev_high, "avg_vol": avg_vol, "vwma": vwma, "symbol_code": symbol_code}
 
 def place_order(symbol: str, price: float, side: int = 1):
     """Place order with pre-checks for BUY and standard handling for SELL."""
@@ -329,9 +377,18 @@ def place_order(symbol: str, price: float, side: int = 1):
             record = {"timestamp": now_ist().isoformat(), "symbol": symbol, "action": "BUY_SKIPPED", "price": price, "qty": 0, "status": checks.get("reason")}
             log_trade_memory(record)
             return {"status": "skipped", "reason": checks.get("reason")}
+        # we get resolved symbol_code from checks
+        symbol_code = checks.get("symbol_code")
+    else:
+        # for SELL use resolved symbol too
+        symbol_code = resolve_symbol_code(symbol)
+        if symbol_code is None:
+            logging.warning(f"Could not resolve symbol for SELL: {symbol}")
+            record = {"timestamp": now_ist().isoformat(), "symbol": symbol, "action": "SELL_SKIPPED_NO_SYMBOL", "price": price, "qty": 0, "status": "no_symbol"}
+            log_trade_memory(record)
+            return {"status": "skipped", "reason": "no_symbol"}
 
     # determine qty using current LTP if available
-    symbol_code = f"NSE:{symbol}-EQ"
     ltp = get_ltp(symbol_code)
     qty = get_quantity(ltp if ltp else price)
 
@@ -347,7 +404,7 @@ def place_order(symbol: str, price: float, side: int = 1):
     }
 
     action = "BUY" if side == 1 else "SELL"
-    logging.info(f"📈 {action} {symbol} @ {price} | Qty: {qty} | Mode: {TRADE_MODE}")
+    logging.info(f"📈 {action} {symbol} (code={symbol_code}) @ {price} | Qty: {qty} | Mode: {TRADE_MODE}")
     resp = safe_place_order(order)
     status = "ok" if isinstance(resp, dict) and resp.get("s") == "ok" else str(resp)
 
@@ -355,6 +412,7 @@ def place_order(symbol: str, price: float, side: int = 1):
     record = {
         "timestamp": now_ist().isoformat(),
         "symbol": symbol,
+        "symbol_code": symbol_code,
         "action": action,
         "price": ltp if ltp else price,
         "qty": qty,
@@ -380,22 +438,16 @@ def place_order(symbol: str, price: float, side: int = 1):
 def get_broker_open_positions():
     """
     Try to query broker for current open intraday positions.
-    Returns:
-      - dict mapping symbol -> netQty (positive means long), or
-      - None if unable to determine
+    Returns a dict mapping symbol -> netQty or None if unavailable.
     """
     global fyers
     try:
-        # prefer positions() if available
         if hasattr(fyers, "positions"):
             resp = fyers.positions()
-            # typical structure may vary; try common keys
             positions = {}
             if isinstance(resp, dict):
-                # many brokers return 'netPositions' or 'data' lists
                 if "netPositions" in resp:
                     for p in resp["netPositions"]:
-                        # adapt fields: check p.get('symbol'), p.get('netQty')
                         sym = p.get("symbol") or p.get("symbolName") or p.get("name")
                         qty = p.get("netQty") or p.get("qty") or 0
                         if sym:
@@ -409,20 +461,11 @@ def get_broker_open_positions():
                             positions[sym] = qty
                     if positions:
                         return positions
-            # fallback: return None and let caller try orderbook
-        # fallback: use orderbook() and infer executed positions (not ideal)
+        # fallback: try orderbook (less reliable)
         if hasattr(fyers, "orderbook"):
             resp = fyers.orderbook()
-            if isinstance(resp, dict) and resp.get("s") == "ok":
-                # orderbook returns orders; we infer executed net qty per symbol
-                positions = {}
-                for o in resp.get("data", []):
-                    sym = o.get("symbol")
-                    status = o.get("status")  # executed etc
-                    filled_qty = o.get("filledQuantity") or o.get("qty") or 0
-                    side = o.get("side")  # 1 buy, -1 sell maybe
-                    # This is heuristic; orderbook interpretation is messy; return None to be safe
-                return None
+            # not implementing complex inference here; return None for safety
+            return None
     except Exception as e:
         logging.warning(f"Could not fetch broker positions: {e}")
     return None
@@ -430,10 +473,7 @@ def get_broker_open_positions():
 def verify_and_clear_positions_after_autosquare():
     """
     After broker auto-square window, verify with broker that positions are cleared.
-    - Poll broker from 15:18 to 15:25
-    - If positions cleared -> clear local open_positions and POSITIONS_FILE
-    - If not cleared by 15:25 and TRADE_MODE==REAL -> attempt to close remaining local positions
-      (we log attempts). Finally clear local memory (to avoid carrying forward).
+    Polls broker until ~15:25 IST and clears local positions if broker is clear.
     """
     start = now_ist()
     timeout_until = start.replace(hour=15, minute=25, second=30, microsecond=0)
@@ -441,10 +481,8 @@ def verify_and_clear_positions_after_autosquare():
     while now_ist() < timeout_until:
         broker_pos = get_broker_open_positions()
         if broker_pos is not None:
-            # determine if any net positions (long) exist
             nonzero = {s: q for s, q in broker_pos.items() if q and float(q) != 0}
             if not nonzero:
-                # broker shows zero positions -> safe to clear local memory
                 open_positions.clear()
                 save_positions()
                 logging.info("✅ Broker positions are clear. Local open_positions cleared.")
@@ -455,31 +493,29 @@ def verify_and_clear_positions_after_autosquare():
             logging.info("ℹ️ Unable to determine broker positions; will re-check shortly.")
         time.sleep(10)
 
-    # timeout reached (≈15:25). If positions still local and TRADE_MODE==REAL, attempt to close them.
+    # timeout reached
     if open_positions:
         logging.warning("⏰ Timeout reached (~15:25) — broker did not report clear positions. Attempting to close remaining local positions.")
         for symbol, pos in list(open_positions.items()):
             entry = pos.get("entry_price")
             qty = pos.get("qty", 0)
-            ltp = get_ltp(f"NSE:{symbol}-EQ")
+            symbol_code = resolve_symbol_code(symbol)
+            ltp = get_ltp(symbol_code) if symbol_code else None
             ltp_to_use = ltp if ltp else entry
-            if TRADE_MODE == "REAL":
+            if TRADE_MODE == "REAL" and symbol_code:
                 try:
                     logging.info(f"Attempting SELL for {symbol} qty={qty} ltp={ltp_to_use}")
                     place_order(symbol, ltp_to_use, side=-1)
                 except Exception as e:
                     logging.error(f"Error attempting manual close for {symbol}: {e}")
             else:
-                # simulate
                 record = {"timestamp": now_ist().isoformat(), "symbol": symbol, "action": "SELL_SIM_MANUAL_CLOSE", "price": ltp_to_use, "qty": qty, "status": "simulated_manual_close"}
                 log_trade_memory(record)
-            # remove local regardless to avoid carrying positions overnight
             open_positions.pop(symbol, None)
             save_positions()
         logging.info("✅ Manual close attempts done; local open_positions cleared.")
         return False
 
-    # nothing to clear
     logging.info("✅ No local open_positions to clear.")
     return True
 
@@ -493,7 +529,7 @@ def exit_monitor():
     - At 15:25: send daily email report (after verification/close attempts)
     """
     logging.info("Exit monitor started.")
-    monitoring_active = True  # whether to perform target/stop checks
+    monitoring_active = True
     emailed = False
 
     while True:
@@ -506,7 +542,9 @@ def exit_monitor():
                     for symbol, pos in list(open_positions.items()):
                         entry = float(pos["entry_price"])
                         qty = pos.get("qty", 0)
-                        symbol_code = f"NSE:{symbol}-EQ"
+                        symbol_code = resolve_symbol_code(symbol)
+                        if not symbol_code:
+                            continue
                         quote = None
                         try:
                             quote = fyers.quotes({"symbols": symbol_code})
@@ -526,7 +564,6 @@ def exit_monitor():
                             if TRADE_MODE == "REAL":
                                 place_order(symbol, ltp, side=-1)
                             else:
-                                # simulate exit
                                 record = {"timestamp": now_ist().isoformat(), "symbol": symbol, "action": "SELL_SIM", "price": ltp, "qty": qty, "status": "simulated_exit"}
                                 log_trade_memory(record)
                                 open_positions.pop(symbol, None)
@@ -534,15 +571,13 @@ def exit_monitor():
                 time.sleep(10)
                 continue
 
-            # 2) If we've reached >=15:10, stop monitoring exits and entries (we already enforce no new entries in place_order / secure_place_thread)
+            # 2) Stop monitoring after 15:10
             if monitoring_active:
                 monitoring_active = False
                 logging.info("⏳ 15:10 reached — stopping active entry/exit checks. Waiting for broker auto-square-off window (15:15-15:30).")
 
-            # 3) At or after 15:15 we begin verification & cleanup (but do not place new exits during 15:10-15:25)
-            # We'll trigger verification once (when time >= 15:18 better) then attempt manual close if required by 15:25
+            # 3) At or after 15:15 begin verification & cleanup
             if now.time() >= dtime(15,15):
-                # Wait for broker to do auto-square-off until ~15:25, then verify and clear
                 verify_and_clear_positions_after_autosquare()
 
             # 4) At or after 15:25 send daily email (only once)
@@ -608,34 +643,14 @@ async def chartink_alert(request: Request):
         stock_list = [s.strip() for s in stocks.split(",")]
         price_list = [float(p.strip()) for p in trigger_prices.split(",") if p.strip()]
 
-# --- Symbol corrections for Fyers naming mismatches ---
-SYMBOL_FIX = {
-    "CIGNITITEC": "CIGNITITECH",
-    "SHREECEM": "SHREECEMEQ",
-    "BAJAJHLDNG": "BAJAJHLDNG",  # example of same
-    # Add more here if you see "no_ltp" errors in future
-}
-
         for idx, symbol in enumerate(stock_list):
-             price = price_list[idx] if idx < len(price_list) else None
-
-         # 🧩 Auto-correct common Chartink symbol truncations
-            fixed_symbol = SYMBOL_FIX.get(symbol, symbol)
-            if fixed_symbol != symbol:
-               logging.info(f"🔧 Fixed symbol name: {symbol} → {fixed_symbol}")
-               symbol = fixed_symbol
-
+            price = price_list[idx] if idx < len(price_list) else None
             if price:
-               threading.Thread(target=place_order, args=(symbol, price, 1)).start()
-        
-
-        #for idx, symbol in enumerate(stock_list):
-        #    price = price_list[idx] if idx < len(price_list) else None
-        #    if price:
-                # spawn thread for each candidate but DO NOT place orders after 15:10
-        #        threading.Thread(target=secure_place_thread, args=(symbol, price), daemon=True).start()
+                # use secure_place_thread which enforces duplicate checks and time-cutoff
+                threading.Thread(target=secure_place_thread, args=(symbol, price), daemon=True).start()
 
         return {"status": "success", "received": data}
+
     except Exception as e:
         logging.error(f"Error processing alert: {e}")
         return {"status": "error", "message": str(e)}
@@ -659,7 +674,7 @@ def secure_place_thread(symbol, price):
             log_trade_memory(rec)
             return {"status": "skipped", "reason": "post_15_10"}
 
-        # ✅ Duplicate guard
+        # Duplicate guard
         with lock:
             if symbol in active_trades or symbol in open_positions:
                 logging.warning(f"⛔ Duplicate alert ignored for {symbol} — already processing/open.")
@@ -674,7 +689,7 @@ def secure_place_thread(symbol, price):
                 log_trade_memory(record)
                 return {"status": "skipped", "reason": "duplicate"}
 
-            # Mark this symbol as active (in-progress)
+            # Mark this symbol as active
             active_trades.add(symbol)
 
         # proceed with order placement
@@ -686,10 +701,8 @@ def secure_place_thread(symbol, price):
         return {"status": "error", "error": str(e)}
 
     finally:
-        # always remove from active set at the end (safe cleanup)
         with lock:
             active_trades.discard(symbol)
-
 
 # ---------------------- STARTUP ----------------------
 @app.on_event("startup")
@@ -698,7 +711,6 @@ def startup_event():
     logging.info(f"🚀 Starting Chartink Webhook Service... (Mode: {TRADE_MODE})")
     open_positions = load_positions() or {}
     init_fyers()
-    # Start exit monitor (handles target/stop before 15:10, verification + cleanup after broker autosquare)
     threading.Thread(target=exit_monitor, daemon=True).start()
     logging.info("🚀 Exit monitor started (target/stop before 15:10; verification & email after).")
 
