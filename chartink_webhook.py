@@ -608,11 +608,32 @@ async def chartink_alert(request: Request):
         stock_list = [s.strip() for s in stocks.split(",")]
         price_list = [float(p.strip()) for p in trigger_prices.split(",") if p.strip()]
 
+# --- Symbol corrections for Fyers naming mismatches ---
+SYMBOL_FIX = {
+    "CIGNITITEC": "CIGNITITECH",
+    "SHREECEM": "SHREECEMEQ",
+    "BAJAJHLDNG": "BAJAJHLDNG",  # example of same
+    # Add more here if you see "no_ltp" errors in future
+}
+
         for idx, symbol in enumerate(stock_list):
-            price = price_list[idx] if idx < len(price_list) else None
+             price = price_list[idx] if idx < len(price_list) else None
+
+         # 🧩 Auto-correct common Chartink symbol truncations
+            fixed_symbol = SYMBOL_FIX.get(symbol, symbol)
+            if fixed_symbol != symbol:
+               logging.info(f"🔧 Fixed symbol name: {symbol} → {fixed_symbol}")
+               symbol = fixed_symbol
+
             if price:
+               threading.Thread(target=place_order, args=(symbol, price, 1)).start()
+        
+
+        #for idx, symbol in enumerate(stock_list):
+        #    price = price_list[idx] if idx < len(price_list) else None
+        #    if price:
                 # spawn thread for each candidate but DO NOT place orders after 15:10
-                threading.Thread(target=secure_place_thread, args=(symbol, price), daemon=True).start()
+        #        threading.Thread(target=secure_place_thread, args=(symbol, price), daemon=True).start()
 
         return {"status": "success", "received": data}
     except Exception as e:
