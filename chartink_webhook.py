@@ -52,7 +52,7 @@ EMAIL_PASS = os.getenv("EMAIL_PASS")   # Gmail App Password
 EMAIL_TO = os.getenv("EMAIL_TO")       # recipient
 
 # ---------------------- ENTRY / ANALYTICS PARAMS ----------------------
-ENTRY_TOLERANCE = float(os.getenv("ENTRY_TOLERANCE", 0.002))  # 0.2% above breakout
+ENTRY_TOLERANCE = float(os.getenv("ENTRY_TOLERANCE", 0.02))  # 2% above breakout
 MIN_VOLUME_MULT = float(os.getenv("MIN_VOLUME_MULT", 1.5))     # min volume vs avg
 MIN_CANDLE_BARS = int(os.getenv("MIN_CANDLE_BARS", 10))
 
