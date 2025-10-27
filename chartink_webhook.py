@@ -234,32 +234,39 @@ def resolve_symbol_code(symbol: str):
     Uses:
       - manual SYMBOL_FIX mapping
       - in-session SYMBOL_CACHE
-      - tries two formats and checks LTP: 'NSE:{base}-EQ' and 'NSE:{base}'
+      - fallback to plain NSE:{symbol}-EQ
     Returns resolved code string or None.
     """
     base_raw = _normalize_incoming_symbol(symbol)
-    # apply manual fixed mapping first
     base = SYMBOL_FIX.get(base_raw, base_raw)
 
-    # cached?
+    # Cached?
     if base_raw in SYMBOL_CACHE:
         return SYMBOL_CACHE[base_raw]
     if base in SYMBOL_CACHE:
         return SYMBOL_CACHE[base]
 
-    candidates = [f"NSE:{base}-EQ", f"NSE:{base}"]
+    # Always build clean uppercased NSE:{base}-EQ
+    symbol_code = f"NSE:{base.strip().upper()}-EQ"
 
-    for code in candidates:
-        ltp = get_ltp(code)
-        if ltp is not None:
-            SYMBOL_CACHE[base_raw] = code
-            SYMBOL_CACHE[base] = code
-            logging.info(f"✅ Resolved symbol '{symbol}' -> {code} (ltp={ltp})")
-            return code
+    # Validate it by checking LTP
+    ltp = get_ltp(symbol_code)
+    if ltp is not None:
+        SYMBOL_CACHE[base_raw] = symbol_code
+        SYMBOL_CACHE[base] = symbol_code
+        logging.info(f"✅ Resolved symbol '{symbol}' → {symbol_code} (ltp={ltp})")
+        return symbol_code
 
-    # Optionally try slight transforms: if base is truncated (10 chars), try common completion heuristics
-    # e.g. Chartink truncation: try to add 'H' or 'CH' etc. This is heuristic; we keep minimal to avoid wrong matches.
-    # Save None in cache to avoid repeated attempts for same unknown symbol.
+    # Fallback try without -EQ
+    alt_code = f"NSE:{base.strip().upper()}"
+    ltp_alt = get_ltp(alt_code)
+    if ltp_alt is not None:
+        SYMBOL_CACHE[base_raw] = alt_code
+        SYMBOL_CACHE[base] = alt_code
+        logging.info(f"✅ Resolved symbol '{symbol}' → {alt_code} (ltp={ltp_alt})")
+        return alt_code
+
+    # If both fail, log and cache failure
     SYMBOL_CACHE[base_raw] = None
     SYMBOL_CACHE[base] = None
     logging.warning(f"❌ Could not resolve symbol '{symbol}' to a valid Fyers code.")
