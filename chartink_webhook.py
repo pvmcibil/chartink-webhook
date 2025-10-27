@@ -34,7 +34,7 @@ MID_PRICE_LIMIT = float(os.getenv("MID_PRICE_LIMIT", 600))
 LOW_QTY = int(os.getenv("LOW_QTY", 10))
 HIGH_QTY = int(os.getenv("HIGH_QTY", 5))
 
-TARGET_PCT = float(os.getenv("TARGET_PCT", 0.05))    # default 5% target
+TARGET_PCT = float(os.getenv("TARGET_PCT", 0.02))    # default 5% target
 STOPLOSS_PCT = float(os.getenv("STOPLOSS_PCT", 0.01)) # default 1% SL
 POSITIONS_FILE = os.getenv("POSITIONS_FILE", "open_positions.json")
 
