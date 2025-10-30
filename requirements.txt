@@ -4,6 +4,5 @@ requests==2.31.0
 fyers-apiv3==3.1.0
 pandas
 openpyxl
-smtplib
 email
 numpy
