@@ -216,7 +216,7 @@ def email_summary():
 
 
 # ---------------- API ENDPOINT ----------------
-@app.post("/webhook")
+@app.post("/chartink")
 async def webhook(request: Request):
     data = await request.json()
     if isinstance(data, list):
