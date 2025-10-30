@@ -182,6 +182,7 @@ def monitor_exits():
 
 
 # ---------------- EMAIL SUMMARY ----------------
+import tempfile
 def email_summary():
     if not EMAIL_USER or not EMAIL_PASS or not EMAIL_TO:
         logging.warning("Email credentials not configured.")
@@ -196,8 +197,8 @@ def email_summary():
             (df["exit_price"].astype(float) - df["entry_price"].astype(float)) * df["qty"].astype(float),
             0,
         )
-        xfile = "/tmp/daily_report.xlsx"
-        df.to_excel(xfile)
+        xfile = os.path.join(tempfile.gettempdir(), "daily_report.xlsx")
+        df.to_excel(xfile, index=False)
         msg = MIMEMultipart()
         msg["From"] = EMAIL_USER
         msg["To"] = EMAIL_TO
