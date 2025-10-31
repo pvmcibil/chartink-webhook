@@ -3,7 +3,7 @@
 Render-safe trading bot with ATR-based SL/Target, TEST/REAL mode,
 in-memory positions, and daily Excel + email summary.
 
-Author: venu madhav (2025) — updated
+Author: venu madhav (2025) — hybrid exits added
 """
 
 import os
@@ -43,6 +43,13 @@ ATR_TARGET_MULT = float(os.getenv("ATR_TARGET_MULT", 2.0))
 TARGET_PCT = float(os.getenv("TARGET_PCT", 1.5))
 SL_PCT = float(os.getenv("SL_PCT", 0.8))
 
+# New hybrid/trailing/time configs
+USE_CANDLE_SL = os.getenv("USE_CANDLE_SL", "TRUE").upper() == "TRUE"
+TRAIL_TYPE = os.getenv("TRAIL_TYPE", "PCT").upper()  # "PCT" or "ATR"
+TRAIL_PCT = float(os.getenv("TRAIL_PCT", 0.5))      # percent to trail once started
+TRAIL_START_PCT = float(os.getenv("TRAIL_START_PCT", 0.5))  # percent move to start trailing
+TIME_EXIT_MIN = int(os.getenv("TIME_EXIT_MIN", 45))  # minutes to auto-exit
+
 # ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +60,7 @@ logging.basicConfig(
 # ---------------- GLOBALS ----------------
 app = FastAPI()
 fyers = None
-open_positions = {}  # In-memory positions
+open_positions = {}  # In-memory positions keyed by normalized symbol
 lock = threading.Lock()
 
 
@@ -63,27 +70,18 @@ def now_ist():
 
 
 def _normalize_for_fyers(symbol: str) -> str:
-    """Return a candidate Fyers symbol (best-effort).
-    If already contains ':', assume user supplied a resolved symbol.
-    Otherwise prepend NSE: and -EQ (common for eq stocks).
-    """
     if not symbol:
         return None
     s = symbol.strip().upper()
     if ":" in s:
         return s
-    # attempt common default
     return f"NSE:{s}-EQ"
 
 
 def get_atr(df: pd.DataFrame, period: int = 14):
-    """Compute ATR (SMA of TR) from a dataframe with high/low/close columns.
-    Returns float or None.
-    """
     try:
         if df is None or df.shape[0] < max(3, period + 1):
             return None
-        # ensure numeric
         df = df.copy()
         for col in ["high", "low", "close"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -105,9 +103,6 @@ def get_atr(df: pd.DataFrame, period: int = 14):
 
 
 def fetch_ohlc(symbol: str, interval: str = "15", lookback_days: int = 7):
-    """Fetch historical candles from Fyers (candles list format).
-    Returns DataFrame with columns: ts, open, high, low, close, vol or None.
-    """
     try:
         if fyers is None:
             logging.debug("fetch_ohlc: fyers not initialized.")
@@ -124,12 +119,10 @@ def fetch_ohlc(symbol: str, interval: str = "15", lookback_days: int = 7):
         resp = fyers.history(params)
         if not resp:
             return None
-        # Fyers returns "candles" as list of lists: [ts, o, h, l, c, v]
         candles = resp.get("candles") if isinstance(resp, dict) else None
         if not candles:
             return None
         df = pd.DataFrame(candles, columns=["ts", "open", "high", "low", "close", "vol"])
-        # convert numeric columns
         for c in ["open", "high", "low", "close", "vol"]:
             df[c] = pd.to_numeric(df[c], errors="coerce")
         df.dropna(subset=["open", "high", "low", "close"], inplace=True)
@@ -140,7 +133,6 @@ def fetch_ohlc(symbol: str, interval: str = "15", lookback_days: int = 7):
 
 
 def get_ltp(symbol: str):
-    """Get latest price via Fyers quotes API. symbol should be fyers symbol format."""
     try:
         if fyers is None:
             logging.debug("get_ltp: fyers not initialized.")
@@ -148,7 +140,6 @@ def get_ltp(symbol: str):
         q = fyers.quotes({"symbols": symbol})
         if not isinstance(q, dict):
             return None
-        # parse common response structure
         if "d" in q and isinstance(q["d"], list) and q["d"]:
             item = q["d"][0]
             v = item.get("v", {}) if isinstance(item, dict) else {}
@@ -165,7 +156,6 @@ def get_ltp(symbol: str):
 
 # ---------------- TRADING CORE ----------------
 def calculate_sl_tgt(entry: float, atr: float):
-    """Return (stop_loss, target) rounded to 2 decimals."""
     try:
         if atr and STOP_METHOD == "ATR":
             sl = entry - (ATR_MULT * atr)
@@ -180,7 +170,6 @@ def calculate_sl_tgt(entry: float, atr: float):
 
 
 def place_order(symbol: str, price: float, qty: int, side: str):
-    """Place order or simulate based on TRADE_MODE."""
     try:
         if TRADE_MODE == "REAL":
             order = {
@@ -205,27 +194,23 @@ def place_order(symbol: str, price: float, qty: int, side: str):
 
 
 def secure_place_thread(symbol: str, price: float):
-    """Thread-safe entry flow: normalize symbol, compute ATR stop/target, store position and place buy (or simulate)."""
     try:
-        # Normalize to fyers symbol format if needed
         resolved = _normalize_for_fyers(symbol)
         if not resolved:
             logging.warning(f"Invalid symbol provided: {symbol}")
             return
 
         with lock:
-            # avoid duplicates
             key = symbol.strip().upper()
             if key in open_positions:
                 logging.info(f"Duplicate {key} ignored (already open).")
                 return
 
-            # fetch recent candles and compute ATR
             df = fetch_ohlc(resolved, interval="15", lookback_days=7)
             atr = get_atr(df, ATR_PERIOD) if df is not None else None
 
             sl, tgt = calculate_sl_tgt(price, atr)
-            qty = 1  # default; you can enhance sizing later
+            qty = 1
 
             open_positions[key] = {
                 "symbol": key,
@@ -239,26 +224,125 @@ def secure_place_thread(symbol: str, price: float):
                 "status": f"{TRADE_MODE}_OPEN",
             }
 
-        # Place order outside lock (network call)
         place_order(resolved, price, qty, "BUY")
         logging.info(f"{key} opened @ {price}, SL {sl}, TGT {tgt}")
     except Exception as e:
         logging.error(f"secure_place_thread error for {symbol}: {e}", exc_info=True)
 
 
+# ---------------- New helpers: candle-based and trailing/time exit ----------------
+def candle_stop_hit(fyers_symbol: str):
+    """
+    Candle-based SL:
+    - Use 5-min candles.
+    - If current candle open > previous close (bullish intent)
+      and current LTP < previous candle's open -> return True
+    """
+    try:
+        df = fetch_ohlc(fyers_symbol, interval="5", lookback_days=1)
+        if df is None or len(df) < 2:
+            return False
+        # use last two closed-ish candles (last row is current most recent)
+        prev = df.iloc[-2]
+        curr = df.iloc[-1]
+        # ensure numeric
+        prev_open = float(prev["open"])
+        prev_close = float(prev["close"])
+        curr_open = float(curr["open"])
+        # if current opened above previous close (bullish) but current price < prev_open => fail
+        if curr_open > prev_close:
+            # check live LTP
+            ltp = get_ltp(fyers_symbol)
+            if ltp is None:
+                return False
+            if ltp < prev_open:
+                logging.info(f"Candle SL condition: {fyers_symbol} ltp {ltp} < prev_open {prev_open}")
+                return True
+        return False
+    except Exception as e:
+        logging.debug(f"candle_stop_hit error {fyers_symbol}: {e}")
+        return False
+
+
+def apply_trailing_stop(key: str, pos: dict, ltp: float):
+    """
+    Move stop loss in-place depending on TRAIL_TYPE.
+    - PCT: sets stop to max(current stop, ltp * (1 - TRAIL_PCT/100)) once price moved TRAIL_START_PCT above entry.
+    - ATR: sets stop to max(current stop, ltp - ATR_MULT * atr) once price moved TRAIL_START_PCT above entry.
+    """
+    try:
+        entry = float(pos["entry_price"])
+        current_stop = float(pos.get("stop_loss"))
+        atr = float(pos.get("atr")) if pos.get("atr") else None
+
+        # only start trailing after price moved favorably by TRAIL_START_PCT
+        if ltp < entry * (1 + TRAIL_START_PCT / 100):
+            return False  # not yet eligible to trail
+
+        new_stop = current_stop
+        if TRAIL_TYPE == "PCT":
+            candidate = round(ltp * (1 - TRAIL_PCT / 100), 2)
+            if candidate > new_stop:
+                new_stop = candidate
+        elif TRAIL_TYPE == "ATR" and atr:
+            candidate = round(ltp - (ATR_MULT * atr), 2)
+            if candidate > new_stop:
+                new_stop = candidate
+
+        if new_stop > current_stop:
+            with lock:
+                if key in open_positions:
+                    open_positions[key]["stop_loss"] = new_stop
+                    open_positions[key]["atr"] = atr  # refresh
+            logging.info(f"Trailing stop moved for {key}: {current_stop} -> {new_stop}")
+            return True
+        return False
+    except Exception as e:
+        logging.debug(f"apply_trailing_stop error for {key}: {e}")
+        return False
+
+
+def secure_square_off(key: str, fyers_sym: str, ltp: float, reason: str):
+    """
+    Centralized close logic: place SELL and update position record.
+    """
+    try:
+        with lock:
+            pos = open_positions.get(key)
+            if not pos:
+                logging.warning(f"secure_square_off: no pos for {key}")
+                return
+            # if already exited, skip
+            if pos.get("status", "").startswith(f"{TRADE_MODE}_EXIT"):
+                logging.info(f"{key} already exited with status {pos.get('status')}")
+                return
+            qty = int(pos.get("qty", 1))
+
+        place_order(fyers_sym, ltp, qty, "SELL")
+
+        with lock:
+            if key in open_positions:
+                open_positions[key].update({
+                    "exit_price": float(ltp),
+                    "exit_reason": reason,
+                    "status": f"{TRADE_MODE}_EXIT_{reason}",
+                    "exit_timestamp": now_ist().isoformat()
+                })
+        logging.info(f"{key} squared off ({reason}) @ {ltp}")
+    except Exception as e:
+        logging.error(f"secure_square_off error for {key}: {e}", exc_info=True)
+
+
 # ---------------- EXIT MONITOR ----------------
 def monitor_exits():
-    """Continuously monitor open_positions for SL/TGT hits using live LTP."""
     logging.info("Exit monitor running.")
     while True:
         try:
-            # create snapshot to iterate safely
             with lock:
                 snapshot = dict(open_positions)
 
             for key, pos in snapshot.items():
                 try:
-                    # skip already closed
                     if pos.get("status", "").startswith(f"{TRADE_MODE}_EXIT"):
                         continue
 
@@ -272,35 +356,40 @@ def monitor_exits():
                     tgt = float(pos.get("target"))
                     qty = int(pos.get("qty", 1))
 
-                    if ltp <= sl:
-                        # SL hit - place SELL
-                        place_order(fyers_sym, ltp, qty, "SELL")
-                        with lock:
-                            open_positions[key].update({
-                                "exit_price": float(ltp),
-                                "exit_reason": "SL_HIT",
-                                "status": f"{TRADE_MODE}_EXIT_SL",
-                                "exit_timestamp": now_ist().isoformat()
-                            })
-                        logging.info(f"{key} SL hit @ {ltp}")
+                    # 1) Apply trailing stop if conditions met (moves stop upward)
+                    apply_trailing_stop(key, pos, ltp)
+
+                    # 2) Time-based exit
+                    entry_time = dt.datetime.fromisoformat(pos["timestamp"])
+                    elapsed_minutes = (now_ist() - entry_time).total_seconds() / 60.0
+                    if elapsed_minutes >= TIME_EXIT_MIN:
+                        secure_square_off(key, fyers_sym, ltp, "TIME_EXIT")
+                        continue
+
+                    # 3) Candle-based SL (if enabled)
+                    candle_hit = False
+                    if USE_CANDLE_SL:
+                        try:
+                            candle_hit = candle_stop_hit(fyers_sym)
+                        except Exception:
+                            candle_hit = False
+
+                    # 4) ATR / regular SL and Target checks
+                    if ltp <= sl or candle_hit:
+                        reason = "CANDLE_SL" if candle_hit else "SL_HIT"
+                        secure_square_off(key, fyers_sym, ltp, reason)
+                        continue
                     elif ltp >= tgt:
-                        # Target hit - place SELL
-                        place_order(fyers_sym, ltp, qty, "SELL")
-                        with lock:
-                            open_positions[key].update({
-                                "exit_price": float(ltp),
-                                "exit_reason": "TGT_HIT",
-                                "status": f"{TRADE_MODE}_EXIT_TGT",
-                                "exit_timestamp": now_ist().isoformat()
-                            })
-                        logging.info(f"{key} TGT hit @ {ltp}")
+                        secure_square_off(key, fyers_sym, ltp, "TGT_HIT")
+                        continue
+
                 except Exception as e:
                     logging.debug(f"monitor_exits inner error for {key}: {e}", exc_info=True)
 
         except Exception as e:
             logging.warning(f"monitor_exits error: {e}", exc_info=True)
 
-        time.sleep(15)  # poll every 15 seconds
+        time.sleep(15)
 
 
 # ---------------- EMAIL SUMMARY ----------------
@@ -351,13 +440,10 @@ def home():
 
 @app.post("/chartink")
 async def chartink_webhook(request: Request):
-    """Accept Chartink (or custom) payloads. Handles CSV lists in 'stocks' and
-    'trigger_prices' as well as single 'symbol'/'price' fields."""
     try:
         data = await request.json()
         logging.info(f"📩 Incoming Chartink webhook: {json.dumps(data)}")
 
-        # Chartink typically sends 'stocks' and 'trigger_prices' as comma-separated strings.
         if isinstance(data, dict) and ("stocks" in data or "trigger_prices" in data):
             stocks = data.get("stocks", "")
             prices = data.get("trigger_prices", "")
@@ -372,7 +458,6 @@ async def chartink_webhook(request: Request):
                     logging.warning(f"⚠️ Missing price for {symbol} in Chartink payload")
             return {"status": "ok"}
 
-        # fallback: handle list of {symbol, price} or single {symbol, price}
         if isinstance(data, list):
             for item in data:
                 symbol = item.get("symbol") or item.get("stocks")
@@ -382,7 +467,6 @@ async def chartink_webhook(request: Request):
                     threading.Thread(target=secure_place_thread, args=(symbol, price), daemon=True).start()
             return {"status": "ok"}
 
-        # single-object fallback
         symbol = data.get("symbol") or data.get("stocks") or ""
         price = float(data.get("price") or data.get("trigger_prices") or 0)
         if symbol and price > 0:
@@ -403,11 +487,8 @@ async def chartink_webhook(request: Request):
 def startup_event():
     global open_positions, fyers
     logging.info(f"🚀 Starting Chartink Webhook Service... (Mode: {TRADE_MODE})")
-
-    # Init in-memory positions
     open_positions = {}
 
-    # Initialize Fyers if token present (TEST mode still benefits from LTP queries)
     try:
         if FYERS_ACCESS_TOKEN:
             init_fyers()
@@ -417,11 +498,9 @@ def startup_event():
     except Exception as e:
         logging.error(f"Fyers init error: {e}", exc_info=True)
 
-    # Start the background monitor thread
     threading.Thread(target=monitor_exits, daemon=True).start()
-    logging.info("🧠 Exit monitor started (ATR SL/TGT tracking active).")
+    logging.info("🧠 Exit monitor started (hybrid SL/TGT tracking active).")
 
-    # Heartbeat (optional) to keep logs visible
     def heartbeat():
         while True:
             logging.info("💓 Heartbeat: app alive")
@@ -449,12 +528,9 @@ def init_fyers():
 
 # ---------------- RUN ----------------
 if __name__ == "__main__":
-    # If running as script, start normally (useful for local dev)
     try:
-        # init fyers if token available
         if FYERS_ACCESS_TOKEN:
             init_fyers()
-        # start background monitor
         threading.Thread(target=monitor_exits, daemon=True).start()
         port = int(os.getenv("PORT", 8000))
         uvicorn.run(app, host="0.0.0.0", port=port)
