@@ -233,34 +233,31 @@ def secure_place_thread(symbol: str, price: float):
 # ---------------- New helpers: candle-based and trailing/time exit ----------------
 def candle_stop_hit(fyers_symbol: str):
     """
-    Candle-based SL:
-    - Use 5-min candles.
-    - If current candle open > previous close (bullish intent)
-      and current LTP < previous candle's open -> return True
+    Confirmed candle-based SL:
+    - Uses 15-min candles.
+    - Checks only the *last closed candle*.
+    - SL triggers only if last candle's close < previous candle's open
+      AND drop > 0.2% (to avoid noise).
     """
     try:
-        df = fetch_ohlc(fyers_symbol, interval="5", lookback_days=1)
-        if df is None or len(df) < 2:
+        df = fetch_ohlc(fyers_symbol, interval="15", lookback_days=1)
+        if df is None or len(df) < 3:
             return False
-        # use last two closed-ish candles (last row is current most recent)
-        prev = df.iloc[-2]
-        curr = df.iloc[-1]
-        # ensure numeric
+
+        prev = df.iloc[-2]  # previous closed candle
+        last = df.iloc[-1]  # last closed candle
+
         prev_open = float(prev["open"])
-        prev_close = float(prev["close"])
-        curr_open = float(curr["open"])
-        # if current opened above previous close (bullish) but current price < prev_open => fail
-        if curr_open > prev_close:
-            # check live LTP
-            ltp = get_ltp(fyers_symbol)
-            if ltp is None:
-                return False
-            if ltp < prev_open:
-                logging.info(f"Candle SL condition: {fyers_symbol} ltp {ltp} < prev_open {prev_open}")
-                return True
+        last_close = float(last["close"])
+        deviation_pct = ((prev_open - last_close) / prev_open) * 100
+
+        if last_close < prev_open and deviation_pct >= 0.2:
+            logging.info(f"📉 Confirmed Candle SL: {fyers_symbol} close {last_close} < prev_open {prev_open} ({deviation_pct:.2f}%)")
+            return True
+
         return False
     except Exception as e:
-        logging.debug(f"candle_stop_hit error {fyers_symbol}: {e}")
+        logging.debug(f"confirmed candle_stop_hit error {fyers_symbol}: {e}")
         return False
 
 
@@ -341,6 +338,9 @@ def monitor_exits():
             with lock:
                 snapshot = dict(open_positions)
 
+            now = now_ist()
+            check_candle_exit = USE_CANDLE_SL and (now.minute % 15 == 0 and now.second < 10)
+
             for key, pos in snapshot.items():
                 try:
                     if pos.get("status", "").startswith(f"{TRADE_MODE}_EXIT"):
@@ -351,33 +351,28 @@ def monitor_exits():
                     if ltp is None:
                         continue
 
-                    # read values
                     sl = float(pos.get("stop_loss"))
                     tgt = float(pos.get("target"))
-                    qty = int(pos.get("qty", 1))
 
-                    # 1) Apply trailing stop if conditions met (moves stop upward)
+                    # 1️⃣ Trailing stop
                     apply_trailing_stop(key, pos, ltp)
 
-                    # 2) Time-based exit
+                    # 2️⃣ Time-based exit
                     entry_time = dt.datetime.fromisoformat(pos["timestamp"])
-                    elapsed_minutes = (now_ist() - entry_time).total_seconds() / 60.0
+                    elapsed_minutes = (now - entry_time).total_seconds() / 60.0
                     if elapsed_minutes >= TIME_EXIT_MIN:
                         secure_square_off(key, fyers_sym, ltp, "TIME_EXIT")
                         continue
 
-                    # 3) Candle-based SL (if enabled)
-                    candle_hit = False
-                    if USE_CANDLE_SL:
-                        try:
-                            candle_hit = candle_stop_hit(fyers_sym)
-                        except Exception:
-                            candle_hit = False
+                    # 3️⃣ Confirmed candle SL — only once every 15 min after candle close
+                    if check_candle_exit:
+                        if candle_stop_hit(fyers_sym):
+                            secure_square_off(key, fyers_sym, ltp, "CANDLE_SL_CONFIRMED")
+                            continue
 
-                    # 4) ATR / regular SL and Target checks
-                    if ltp <= sl or candle_hit:
-                        reason = "CANDLE_SL" if candle_hit else "SL_HIT"
-                        secure_square_off(key, fyers_sym, ltp, reason)
+                    # 4️⃣ ATR / regular SL and Target checks
+                    if ltp <= sl:
+                        secure_square_off(key, fyers_sym, ltp, "SL_HIT")
                         continue
                     elif ltp >= tgt:
                         secure_square_off(key, fyers_sym, ltp, "TGT_HIT")
@@ -390,6 +385,7 @@ def monitor_exits():
             logging.warning(f"monitor_exits error: {e}", exc_info=True)
 
         time.sleep(15)
+
 
 
 # ---------------- EMAIL SUMMARY ----------------
@@ -436,6 +432,11 @@ def email_summary():
 @app.get("/")
 def home():
     return {"message": "Chartink Webhook is running ✅", "mode": TRADE_MODE}
+    
+@app.get("/heartbeat")
+async def heartbeat():
+    return {"status": "alive", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    
 
 
 @app.post("/chartink")
