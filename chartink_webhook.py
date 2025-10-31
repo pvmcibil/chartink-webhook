@@ -436,9 +436,9 @@ def email_summary():
 
 
 # ---------------- API ENDPOINTS ----------------
-@app.get("/")
-def home():
-    return {"message": "Chartink Webhook is running ✅", "mode": TRADE_MODE}
+@app.api_route("/heartbeat", methods=["GET", "HEAD"])
+async def heartbeat():
+    return {"status": "alive", "timestamp": now_ist().strftime("%Y-%m-%d %H:%M:%S")}
     
 @app.get("/heartbeat")
 async def heartbeat():
