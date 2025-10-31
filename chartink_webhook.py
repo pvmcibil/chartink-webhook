@@ -50,6 +50,10 @@ TRAIL_PCT = float(os.getenv("TRAIL_PCT", 0.5))      # percent to trail once star
 TRAIL_START_PCT = float(os.getenv("TRAIL_START_PCT", 0.5))  # percent move to start trailing
 TIME_EXIT_MIN = int(os.getenv("TIME_EXIT_MIN", 45))  # minutes to auto-exit
 
+DEFAULT_INTERVAL = "5"   # options: "5", "15", "30", "60", "D"
+LOOKBACK_DAYS_ENTRY = 7
+LOOKBACK_DAYS_EXIT = 1
+
 # ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +106,7 @@ def get_atr(df: pd.DataFrame, period: int = 14):
         return None
 
 
-def fetch_ohlc(symbol: str, interval: str = "15", lookback_days: int = 7):
+def fetch_ohlc(symbol: str, interval: str = DEFAULT_INTERVAL, lookback_days: int = 7):
     try:
         if fyers is None:
             logging.debug("fetch_ohlc: fyers not initialized.")
@@ -206,7 +210,7 @@ def secure_place_thread(symbol: str, price: float):
                 logging.info(f"Duplicate {key} ignored (already open).")
                 return
 
-            df = fetch_ohlc(resolved, interval="15", lookback_days=7)
+            df = fetch_ohlc(resolved, interval=DEFAULT_INTERVAL, lookback_days=7)
             atr = get_atr(df, ATR_PERIOD) if df is not None else None
 
             sl, tgt = calculate_sl_tgt(price, atr)
@@ -234,13 +238,11 @@ def secure_place_thread(symbol: str, price: float):
 def candle_stop_hit(fyers_symbol: str):
     """
     Confirmed candle-based SL:
-    - Uses 15-min candles.
+    - Uses interval from DEFAULT_INTERVAL (e.g., 5, 15, 30…).
     - Checks only the *last closed candle*.
-    - SL triggers only if last candle's close < previous candle's open
-      AND drop > 0.2% (to avoid noise).
     """
     try:
-        df = fetch_ohlc(fyers_symbol, interval="15", lookback_days=1)
+        df = fetch_ohlc(fyers_symbol, interval=DEFAULT_INTERVAL, lookback_days=1)
         if df is None or len(df) < 3:
             return False
 
@@ -339,7 +341,12 @@ def monitor_exits():
                 snapshot = dict(open_positions)
 
             now = now_ist()
-            check_candle_exit = USE_CANDLE_SL and (now.minute % 15 == 0 and now.second < 10)
+            try:
+               interval_min = int(DEFAULT_INTERVAL) if DEFAULT_INTERVAL.isdigit() else 15
+            except Exception:
+               interval_min = 15
+
+            check_candle_exit = USE_CANDLE_SL and (now.minute % interval_min == 0 and now.second < 10)
 
             for key, pos in snapshot.items():
                 try:
@@ -435,7 +442,16 @@ def home():
     
 @app.get("/heartbeat")
 async def heartbeat():
-    return {"status": "alive", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    return {"status": "alive", "timestamp": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+@app.get("/test-email")
+def test_email():
+    try:
+        email_summary()
+        return {"status": "success", "message": "Email triggered successfully ✅"}
+    except Exception as e:
+        logging.error(f"Test email failed: {e}", exc_info=True)
+        return {"status": "error", "message": str(e)} 
     
 
 
@@ -499,14 +515,32 @@ def startup_event():
     except Exception as e:
         logging.error(f"Fyers init error: {e}", exc_info=True)
 
+    # 🧠 Exit monitor thread
     threading.Thread(target=monitor_exits, daemon=True).start()
     logging.info("🧠 Exit monitor started (hybrid SL/TGT tracking active).")
 
+    # 💓 Heartbeat thread
     def heartbeat():
         while True:
             logging.info("💓 Heartbeat: app alive")
             time.sleep(300)
     threading.Thread(target=heartbeat, daemon=True).start()
+
+    # 📧 Daily Email Scheduler Thread
+    def daily_report_scheduler():
+        while True:
+            now = now_ist()
+            # 15:31 IST = market close
+            if now.hour == 15 and now.minute == 31 and now.second < 10:
+                logging.info("📧 Triggering daily email summary...")
+                try:
+                    email_summary()
+                except Exception as e:
+                    logging.error(f"Email summary failed: {e}", exc_info=True)
+                time.sleep(70)  # wait a bit to prevent multiple sends
+            time.sleep(5)
+
+    threading.Thread(target=daily_report_scheduler, daemon=True).start()
 
 
 @app.on_event("shutdown")
