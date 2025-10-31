@@ -527,21 +527,41 @@ def startup_event():
     threading.Thread(target=heartbeat, daemon=True).start()
 
     # 📧 Daily Email Scheduler Thread
-    def daily_report_scheduler():
-        while True:
+def daily_report_scheduler():
+    logging.info("📧 Daily report scheduler thread started.")
+    last_report_date = None
+
+    while True:
+        try:
             now = now_ist()
-            # 15:31 IST = market close
-            if now.hour == 15 and now.minute == 31 and now.second < 10:
+
+            # 1️⃣ Send report once daily at 15:31 IST (market close)
+            if now.hour == 15 and now.minute == 31 and (last_report_date != now.date()):
                 logging.info("📧 Triggering daily email summary...")
                 try:
                     email_summary()
+                    last_report_date = now.date()  # prevent multiple sends in same day
                 except Exception as e:
                     logging.error(f"Email summary failed: {e}", exc_info=True)
-                time.sleep(70)  # wait a bit to prevent multiple sends
+                time.sleep(90)  # wait to avoid double-triggering
+
+            # 2️⃣ Clear open_positions every morning at 09:00 IST
+            if now.hour == 9 and now.minute == 0 and now.second < 10:
+                with lock:
+                    if open_positions:
+                        logging.info(f"🧹 Clearing {len(open_positions)} positions for new trading day.")
+                        open_positions.clear()
+                time.sleep(70)  # prevent multiple clears in that minute
+
             time.sleep(5)
 
-    threading.Thread(target=daily_report_scheduler, daemon=True).start()
+        except Exception as e:
+            logging.error(f"daily_report_scheduler loop error: {e}", exc_info=True)
+            time.sleep(10)  # safety pause to prevent crash loop
 
+
+# Start scheduler in background
+threading.Thread(target=daily_report_scheduler, daemon=True).start()
 
 @app.on_event("shutdown")
 def shutdown_event():
