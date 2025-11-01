@@ -1,0 +1,30 @@
+name: 🔁 Refresh FYERS Token
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # runs every day at 8:30 AM IST (3:00 UTC)
+  workflow_dispatch:       # allow manual trigger
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run refresh token script
+        env:
+          FYERS_APP_ID: ${{ secrets.FYERS_APP_ID }}
+          FYERS_APP_SECRET: ${{ secrets.FYERS_APP_SECRET }}
+          FYERS_REFRESH_TOKEN: ${{ secrets.FYERS_REFRESH_TOKEN }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: python refresh_token.py
